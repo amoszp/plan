@@ -1,0 +1,7 @@
+node_modules/
+dist/
+# local SQLite data (the server keeps its database here)
+/backend/data/
+/data/
+.env
+*.db

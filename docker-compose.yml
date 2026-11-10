@@ -1,0 +1,20 @@
+services:
+  plan:
+    image: ghcr.io/${GITHUB_REPOSITORY_OWNER:-amoszp}/plan:${PLAN_TAG:-latest}
+    container_name: plan
+    restart: unless-stopped
+    ports:
+      - "1112:4480"
+    env_file:
+      - ./.env
+    volumes:
+      # Host-side folder that keeps the SQLite database across updates.
+      - ./data:/app/data
+    networks:
+      - default
+      - accounts
+
+networks:
+  accounts:
+    # Created by the accounts service's compose file.
+    external: true

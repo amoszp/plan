@@ -31,7 +31,7 @@ app.use("/api", (_req, res) => {
 
 // A CDN in front may keep .js, .css and .json for hours whatever this server says, so the page
 // references them with a fingerprint of their contents: a new build is a new address.
-const VERSIONED = ["styles.css", "exercises.js", "planmath.js", "app.js", "data/plan.json"];
+const VERSIONED = ["styles.css", "exercises.js", "planmath.js", "foodlog.js", "app.js", "data/plan.json"];
 const fingerprint = (name: string) =>
   createHash("sha256").update(readFileSync(join(FRONTEND_DIR, name))).digest("hex").slice(0, 12);
 function versionedIndex(): string {

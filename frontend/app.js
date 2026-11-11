@@ -1,7 +1,8 @@
 "use strict";
 /* Home training and food plan. One app for PC and phone: wide screens open on Train, phones on Today.
    EX and SESS come from exercises.js, the food maths from planmath.js (PM), the plan from data/plan.json.
-   What this app keeps: settings and the edited menu (on the device first, then synced to the account).
+   What this app keeps: settings, the edited menu and the food log (own products, saved meals, one log
+   per day; the log maths is in foodlog.js, FL). All on the device first, then synced to the account.
    What it doesn't: sets and weights live in the gym log app, the shopping list in the list app;
    the server passes them on with the user's own sign-in. */
 
@@ -9,7 +10,10 @@ const CYCLE_START = new Date("2026-11-16T00:00:00");
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const DAYS_LONG = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const SLOTS = ["Lunch", "Dinner"];
-const TRAIN_DAYS = { 1: "A", 3: "B", 6: "C" };
+// Default training week (0 = Monday). Single dates can be changed on Today; the default in Settings.
+const DEFAULT_WEEK = { 1: "A", 3: "B", 6: "C" };
+const ACTS = [["walk", "Walk"], ["run", "Run"], ["bike", "Bike"], ["football", "Football"], ["padel", "Padel"], ["other", "Other"]];
+const ACT_LABEL = Object.fromEntries(ACTS);
 const SESS_DESC = { A: "Legs, push-ups, rows", B: "Legs, rows, shoulders, arms", C: "16-minute circuit" };
 const ROUTINE_NAME = (k) => `Home ${k}`;
 const LIST_NAME = { shop1: "Plan · Big shop", shop2: "Plan · Top-up", pantry: "Plan · Pantry" };
@@ -29,6 +33,8 @@ const eur = (n) => n.toLocaleString("es-ES", { style: "currency", currency: "EUR
 const fmt = (s) => { s = Math.max(0, Math.ceil(s)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const wd = (d) => (d.getDay() + 6) % 7;
+const addDays = (day, n) => { const d = new Date(day + "T12:00:00"); d.setDate(d.getDate() + n); return isoDay(d); };
+const dayName = (day, opts = { weekday: "long", day: "numeric", month: "long" }) => new Date(day + "T12:00:00").toLocaleDateString("en-GB", opts);
 const isoDay = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const exImg = (name) => [`img/ex/${name}-0.jpg`, `img/ex/${name}-1.jpg`];
 const num = (n) => n.toLocaleString("es-ES");
@@ -42,6 +48,13 @@ const ICON = {
   cook: '<path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2M7 2v20M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"/>',
   buy: '<circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/>',
   settings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+  log: '<path d="M12 20h9"/><path d="M16.38 3.62a1 1 0 0 1 3 3L7.37 18.63a2 2 0 0 1-.86.5l-2.87.84a.5.5 0 0 1-.62-.62l.84-2.87a2 2 0 0 1 .5-.86z"/>',
+  search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  trash: '<path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',
+  edit: '<path d="M21.17 6.81a1 1 0 0 0-3.98-3.98L3.84 16.17a2 2 0 0 0-.5.83l-1.32 4.35a.5.5 0 0 0 .62.62l4.35-1.32a2 2 0 0 0 .83-.5z"/>',
+  save: '<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8M7 3v5h8"/>',
+  close: '<path d="M18 6 6 18M6 6l12 12"/>',
+  history: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5M12 7v5l4 2"/>',
   check: '<path d="M20 6 9 17l-5-5"/>',
   left: '<path d="m15 18-6-6 6-6"/>', right: '<path d="m9 18 6-6-6-6"/>', down: '<path d="m6 9 6 6 6-6"/>',
   plus: '<path d="M5 12h14M12 5v14"/>', minus: '<path d="M5 12h14"/>',
@@ -97,11 +110,20 @@ class App {
     this.sync = store.get("sync", {});
     this.settings = { ...DEFAULT_SETTINGS, ...(this.sync.settings?.value || {}) };
     this.menu = PM.cleanMenu(plan, this.sync.menu?.value);
+    // Food log: days older than the server sends are dropped from this device too.
+    const oldest = isoDay(new Date(this.now.getTime() - 35 * 86400000));
+    for (const k of Object.keys(this.sync)) if (k.startsWith("log:") && k.slice(4) < oldest && !this.sync[k].dirty) delete this.sync[k];
+    this.foods = this.sync.foods?.value || {};
+    this.logDay = isoDay(this.now); this.logText = store.get("logdraft", ""); this.logSlot = FL.slotAt(this.now);
+    this.logMacro = "p"; this.logMode = null; this.form = null; this.saveMeal = null; this.confirmDel = null; this.meal = null;
+    this.navDepth = 0; this.skipPop = 0; this.menuFrom = null;
     // Training: what's typed on this device today, and sets waiting to reach the gym log.
     this.gym = { key: null, loading: false, error: false, data: {} };
     this.gymQueue = store.get("gymq", {});
     this.routineState = store.get("routines", null);
-    this.sess = TRAIN_DAYS[this.todayWd] || "A";
+    this.trainPlan = this.sync.train?.value || {};
+    this.moveFrom = null; this.addSess = null; this.actForm = null;
+    this.sess = this.sessOn(isoDay(this.now)) || "A";
     this.loadTrain();
   }
 
@@ -158,12 +180,12 @@ class App {
 
   /* ---------- shell ---------- */
   mount() {
-    const NAV = { today: "Today", menu: "Menu", train: "Train", cook: "Cook", buy: "Buy" };
+    const NAV = { today: "Today", log: "Log", menu: "Menu", train: "Train", cook: "Cook", buy: "Buy" };
     this.root.innerHTML = `<div class="app">
-      <header class="app-head"><h1 data-r="title" tabindex="-1"></h1><button type="button" class="icon-btn head-set" data-go="settings" aria-label="Settings">${ic("settings")}</button></header>
+      <header class="app-head"><button type="button" class="icon-btn head-back" data-act="headback" hidden>${ic("left")}</button><h1 data-r="title" tabindex="-1"></h1><button type="button" class="icon-btn head-set" data-go="settings" aria-label="Settings">${ic("settings")}</button></header>
       <main class="body" data-r="body"></main>
       <nav class="nav" aria-label="Pages">
-        ${Object.entries(NAV).map(([v, l]) => `<button type="button" data-go="${v}">${ic(v)}<span>${l}</span></button>`).join("")}
+        ${Object.entries(NAV).map(([v, l]) => `<button type="button" data-go="${v}"${v === "menu" ? ' class="wide-nav"' : ""}>${ic(v)}<span>${l}</span></button>`).join("")}
         <button type="button" class="set-btn" data-go="settings">${ic("settings")}<span>Settings</span></button>
       </nav></div>`;
     this.$title = this.root.querySelector('[data-r="title"]');
@@ -172,12 +194,19 @@ class App {
       this.wired = true;
       this.root.addEventListener("click", (e) => this.onClick(e));
       this.root.addEventListener("change", (e) => this.onChange(e));
+      this.root.addEventListener("input", (e) => this.onInput(e));
       this.root.addEventListener("dragstart", (e) => this.onDrag(e));
       this.root.addEventListener("dragover", (e) => this.onDrag(e));
       this.root.addEventListener("dragleave", (e) => this.onDrag(e));
       this.root.addEventListener("drop", (e) => this.onDrag(e));
       this.root.addEventListener("dragend", (e) => this.onDrag(e));
       document.addEventListener("keydown", (e) => { if (this.key(e)) e.preventDefault(); });
+      // The phone's Back (and the browser's) closes whatever was opened last, instead of leaving the app.
+      window.addEventListener("popstate", () => {
+        if (this.skipPop > 0) { this.skipPop--; return; }
+        this.navDepth = Math.max(0, this.navDepth - 1);
+        this.closeTop(true);
+      });
       window.addEventListener("online", () => { this.online = true; this.pull(); });
       window.addEventListener("offline", () => { this.online = false; this.render(); });
       document.addEventListener("visibilitychange", () => { if (!document.hidden) this.pull(); });
@@ -187,12 +216,16 @@ class App {
     this.render();
   }
   go(v, fromNav = false) {
+    this.popNav(this.navDepth);                                                 // a page from the menu starts a fresh path
     if (v === "settings" && this.view === "settings") v = this.back;           // the settings button closes Settings again
     // Pressing Cook in the menu while a recipe is open goes back to the recipe list.
     else if (fromNav && v === "cook" && this.view === "cook" && this.cook && this.cook.step < 0) this.cook = null;
     if (v !== "settings") this.back = v;
     if (v !== "menu") { this.sel = null; this.mode = null; this.drop = null; }
+    if (v !== "log") { this.logMode = null; this.form = null; this.saveMeal = null; this.confirmDel = null; this.meal = null; }
+    this.menuFrom = null;
     this.view = v; this.confirmMenuReset = false;
+    if (v === "settings") this.pushNav();
     this.render({ top: true });
     this.$title.focus({ preventScroll: true });
   }
@@ -205,8 +238,11 @@ class App {
     this.root.querySelectorAll(".nav [data-go]").forEach((b) => b.removeAttribute("aria-current"));
     this.root.querySelector(`.nav [data-go="${this.view}"]`)?.setAttribute("aria-current", "page");
     this.root.querySelector(".head-set").setAttribute("aria-pressed", String(this.view === "settings"));
-    const T = { today: "Today", menu: "Menu", train: "Train", cook: "Cook", buy: "Buy", settings: "Settings" };
-    this.$title.textContent = this.view === "cook" && this.cook ? this.R[this.cook.rid].name : T[this.view];
+    const T = { today: "Today", log: "Food log", menu: "Menu", train: "Train", cook: "Cook", buy: "Buy", settings: "Settings" };
+    this.$title.textContent = this.view === "cook" && this.cook ? this.R[this.cook.rid].name : this.view === "log" ? this.logTitle() : T[this.view];
+    const nb = this.nested(), hb = this.root.querySelector(".head-back");
+    hb.hidden = !nb;
+    if (nb) hb.setAttribute("aria-label", nb.label);
     const off = this.online ? "" : `<div class="offline">${ic("cloudOff")}<span>Offline. Changes stay on this device and sync when you're back online.</span></div>`;
     this.$body.innerHTML = off + this["v_" + this.view]();
     // Widths set from script: the page allows no inline style attributes.
@@ -218,6 +254,40 @@ class App {
     if (this.view === "train") this.loadGym();
   }
 
+  /* ---------- nested screens: one back path ---------- */
+  /** What the header's back arrow (and the phone's Back, and Escape) closes right now, if anything. */
+  nested() {
+    const T = { today: "Today", log: "Food log", menu: "Menu", train: "Train", cook: "Cook", buy: "Buy" };
+    if (this.view === "log") {
+      if (this.form) return { label: `Back to ${this.logMode === "foods" ? "Foods and meals" : "Food log"}`, run: () => { this.form = null; this.confirmDel = null; } };
+      if (this.meal) return { label: "Back to Food log", run: () => { this.meal = null; } };
+      if (this.logMode === "foods") return { label: "Back to Food log", run: () => { this.logMode = null; } };
+    }
+    if (this.view === "cook" && this.cook) {
+      if (this.cook.step >= 0) return { label: "Stop cooking", run: () => { this.cook.step = -1; this.cook.timer = null; this.wake(false); } };
+      return { label: "Back to all recipes", run: () => { this.cook = null; } };
+    }
+    if (this.view === "menu" && this.menuFrom) return { label: "Back to Today", run: () => { this.view = "today"; this.back = "today"; this.menuFrom = null; this.sel = null; this.mode = null; this.drop = null; } };
+    if (this.view === "settings") return { label: `Back to ${T[this.back] || "Today"}`, run: () => { this.view = this.back; } };
+    return null;
+  }
+  closeTop(fromPop = false) {
+    const n = this.nested();
+    if (!n) return false;
+    n.run();
+    if (!fromPop) this.popNav(1);
+    this.render({ top: true });
+    this.$title.focus({ preventScroll: true });
+    return true;
+  }
+  pushNav() { try { history.pushState({ hb: true }, ""); this.navDepth++; } catch {} }
+  popNav(n) {
+    n = Math.min(n, this.navDepth);
+    if (!n) return;
+    this.navDepth -= n; this.skipPop++;
+    try { history.go(-n); } catch { this.skipPop--; }
+  }
+
   /* ---------- sync ---------- */
   change(key, value) {
     this.sync[key] = { value, updatedAt: new Date().toISOString(), dirty: true };
@@ -226,7 +296,7 @@ class App {
   }
   async push() {
     for (const [key, e] of Object.entries(this.sync)) {
-      if (!e.dirty || !["settings", "menu"].includes(key)) continue;
+      if (!e.dirty || !(["settings", "menu", "foods", "train"].includes(key) || key.startsWith("log:"))) continue;
       try {
         const r = await api("PUT", "/state/" + key, { value: e.value, updatedAt: e.updatedAt });
         if (r.status === 401) return this.signedOut();
@@ -261,8 +331,10 @@ class App {
     this.sync[key] = { value: srv.value, updatedAt: srv.updatedAt, dirty: false };
     if (key === "settings") this.settings = { ...DEFAULT_SETTINGS, ...srv.value };
     if (key === "menu") this.menu = PM.cleanMenu(this.F, srv.value);
+    if (key === "foods") this.foods = srv.value || {};
+    if (key === "train") this.trainPlan = srv.value || {};
   }
-  busy() { return (this.cook && this.cook.step >= 0) || this.mode || this.drop || this.$body?.contains(document.activeElement) && document.activeElement.tagName === "INPUT"; }
+  busy() { return (this.cook && this.cook.step >= 0) || this.mode || this.drop || this.form || this.$body?.contains(document.activeElement) && document.activeElement.tagName === "INPUT"; }
   signedOut() { store.del("user"); this.showAuth("login", "You were signed out. Sign in again."); }
 
   /* ---------------- menu helpers ---------------- */
@@ -289,16 +361,111 @@ class App {
     const t = this.F.targets;
     const low = targets && m.p < t.lowP;
     return `<div class="macros${compact ? " compact" : ""}">
-      <span class="mp${low ? " low" : ""}"><b class="num">${m.p}</b> g protein</span><span><b class="num">${m.c}</b> g carbs</span><span><b class="num">${m.f}</b> g fat</span><span><b class="num">${num(m.k)}</b> kcal</span>
+      <span class="mp${low ? " low" : ""}"><b class="num">${num(m.p)}</b> g protein</span><span><b class="num">${num(m.c)}</b> g carbs</span><span><b class="num">${num(m.f)}</b> g fat</span><span><b class="num">${num(m.k)}</b> kcal</span>
       ${low ? `<span class="tag warn">Low protein</span>` : ""}</div>`;
+  }
+
+  /* ---------------- training days: a default week, changed date by date ---------------- */
+  weekly() { return { ...DEFAULT_WEEK, ...(this.trainPlan.weekly || {}) }; }
+  sessOn(day) {
+    const mv = (this.trainPlan.moves || {})[day];
+    const v = mv !== undefined ? mv : this.weekly()[wd(new Date(day + "T12:00:00"))];
+    return v && v !== "-" ? v : null;
+  }
+  /** The calendar date shown for a week and weekday on Today: this week, or the next one for the other cycle week. */
+  dateFor(week, day) {
+    const monday = addDays(isoDay(this.now), -this.todayWd);
+    return addDays(monday, ((week - this.curWeek + 2) % 2) * 7 + day);
+  }
+  setTrain(moves, weekly, msg) {
+    const prev = this.trainPlan, w = weekly || this.weekly();
+    // A date set back to what the default week says needs no entry of its own.
+    const clean = {};
+    for (const [k, v] of Object.entries(moves)) { const def = w[wd(new Date(k + "T12:00:00"))] || "-"; if (v !== def) clean[k] = v; }
+    for (const k of Object.keys(clean).sort().slice(0, -200)) delete clean[k];
+    this.trainPlan = { ...(weekly ? { weekly } : this.trainPlan.weekly ? { weekly: this.trainPlan.weekly } : {}), moves: clean };
+    this.change("train", this.trainPlan);
+    this.moveFrom = null; this.addSess = null;
+    if (this.sessOn(isoDay(new Date())) && this.tr && !Object.keys(this.tr.rows).length) { this.sess = this.sessOn(isoDay(new Date())); this.tr.sess = this.sess; this.saveTrain(); }
+    this.render();
+    this.toast(msg, () => { this.trainPlan = prev; this.change("train", prev); this.render(); });
+  }
+  moveSession(from, to) {
+    const S = this.sessOn(from), T = this.sessOn(to), moves = { ...(this.trainPlan.moves || {}) };
+    moves[to] = S; moves[from] = T || "-";
+    const short = (x) => dayName(x, { weekday: "long" });
+    this.setTrain(moves, null, T ? `Session ${S} on ${short(to)}, Session ${T} on ${short(from)}` : `Session ${S} moved to ${short(to)}`);
+  }
+  setSessionOn(day, v) {
+    const moves = { ...(this.trainPlan.moves || {}), [day]: v };
+    this.setTrain(moves, null, v === "-" ? `Session skipped on ${dayName(day, { weekday: "long" })}` : `Session ${v} added on ${dayName(day, { weekday: "long" })}`);
+  }
+  /** Default days in Settings: picking a day taken by another session swaps the two. */
+  setWeekly(S, dayIdx) {
+    const w = { ...this.weekly() };
+    const old = Object.keys(w).find((k) => w[k] === S), other = w[dayIdx];
+    // "-" (not a missing day): the default week would otherwise fill the old day back in.
+    if (old !== undefined) w[old] = other && other !== "-" && other !== S ? other : "-";
+    w[dayIdx] = S;
+    this.setTrain({ ...(this.trainPlan.moves || {}) }, w, `Session ${S} on ${DAYS_LONG[dayIdx]}s`);
+  }
+  trainBlock(day) {
+    const sess = this.sessOn(day);
+    const close = (act) => `<button type="button" class="icon-btn" data-act="${act}" aria-label="Close">${ic("close")}</button>`;
+    if (sess) {
+      const monday = addDays(day, -wd(new Date(day + "T12:00:00")));
+      const panel = this.moveFrom === day ? `<div class="panel"><div class="panel-top"><div class="panel-h"><span class="t">Move Session ${sess} to</span><span class="s">If that day has a session, the two swap.</span></div>${close("tclose")}</div>
+        <div class="chips">${[0, 1, 2, 3, 4, 5, 6].map((i) => addDays(monday, i)).filter((x) => x !== day).map((x) => `<button type="button" class="chip" data-tmove-to="${x}">${dayName(x, { weekday: "short", day: "numeric" })}${this.sessOn(x) ? ` <span class="s">· ${this.sessOn(x)}</span>` : ""}</button>`).join("")}</div></div>` : "";
+      return `<button type="button" class="train-line" data-go="train" data-sess="${sess}">${ic("train")}<span class="grow"><span class="t">Session ${sess}</span><br><span class="s">${SESS_DESC[sess]}</span></span><span class="s">Open</span>${ic("right")}</button>
+        ${panel || `<div class="actions"><button type="button" class="btn quiet" data-act="tmove" data-date="${day}">${ic("swap")} Move to another day</button><button type="button" class="btn quiet" data-act="tskip" data-date="${day}">${ic("close")} Skip this session</button></div>`}`;
+    }
+    let next = null;
+    for (let k = 1; k <= 14 && !next; k++) { const x = addDays(day, k); if (this.sessOn(x)) next = x; }
+    const panel = this.addSess === day ? `<div class="panel"><div class="panel-top"><div class="panel-h"><span class="t">Train on ${dayName(day, { weekday: "long" })}</span></div>${close("tclose")}</div>
+      <div class="rows">${["A", "B", "C"].map((k) => `<button type="button" class="row" data-tsess="${k}" data-date="${day}"><span class="grow"><span class="t">Session ${k}</span><br><span class="s">${SESS_DESC[k]}</span></span>${ic("plus")}</button>`).join("")}</div></div>` : "";
+    return `<div class="train-line rest">${ic("train")}<span class="grow"><span class="t">Rest day</span><br><span class="s">${next ? `Next: Session ${this.sessOn(next)} on ${dayName(next, { weekday: "long" })}` : "No session in the next two weeks"}</span></span></div>
+      ${panel || `<div class="actions"><button type="button" class="btn quiet" data-act="taddsess" data-date="${day}">${ic("plus")} Add a session</button></div>`}`;
+  }
+  /* ---------------- activities (walks and the like), per date ---------------- */
+  dayDoc(day) { return this.sync["log:" + day]?.value || {}; }
+  actsFor(day) { return (this.dayDoc(day).acts || []).slice(); }
+  setActs(day, list) { this.change("log:" + day, { ...this.dayDoc(day), entries: this.dayDoc(day).entries || [], acts: list }); }
+  actText(a) { return [ACT_LABEL[a.t], a.km ? `${num(a.km)} km` : "", a.min ? `${num(a.min)} min` : ""].filter(Boolean).join(" · "); }
+  actBlock(day) {
+    const acts = this.actsFor(day), f = this.actForm && this.actForm.day === day ? this.actForm : null;
+    const list = acts.length ? `<div class="rows">${acts.map((a) => `<div class="row"><span class="grow t">${esc(this.actText(a))}</span><button type="button" class="icon-btn" data-del-act="${a.id}" data-date="${day}" aria-label="Delete ${esc(this.actText(a))}">${ic("trash")}</button></div>`).join("")}</div>` : "";
+    const form = f ? `<div class="panel"><div class="panel-top"><div class="panel-h"><span class="t">Add an activity</span><span class="s">${esc(dayName(day))}</span></div><button type="button" class="icon-btn" data-act="actclose" aria-label="Close">${ic("close")}</button></div>
+      <div class="chips" role="group" aria-label="Activity">${ACTS.map(([k, l]) => `<button type="button" class="chip" data-act-type="${k}" aria-pressed="${f.t === k}">${l}</button>`).join("")}</div>
+      <div class="fgrid"><label class="ffield"><span class="eyebrow">Distance (optional)</span><span class="tin"><input class="num" type="number" inputmode="decimal" min="0" max="300" step="0.1" data-actf="km" value="${esc(f.km)}" aria-label="Distance in km"><span class="unit">km</span></span></label>
+        <label class="ffield"><span class="eyebrow">Time</span><span class="tin"><input class="num" type="number" inputmode="numeric" min="0" max="1440" step="1" data-actf="min" value="${esc(f.min)}" aria-label="Time in minutes"><span class="unit">min</span></span></label></div>
+      <p class="err-line" data-r="acterr" ${f.err ? "" : "hidden"}>${esc(f.err || "")}</p>
+      <div class="actions"><button type="button" class="btn primary" data-act="actgo">${ic("plus")} Add ${esc(ACT_LABEL[f.t].toLowerCase())}</button><button type="button" class="btn quiet" data-act="actclose">Cancel</button></div></div>` : "";
+    return `<div class="section"><div class="aisle-h"><span class="eyebrow">Activity</span>${f ? "" : `<button type="button" class="btn quiet" data-act="actadd" data-date="${day}">${ic("plus")} Add activity</button>`}</div>
+      ${list}${form}${!acts.length && !f ? `<p class="s m0">Walks, runs, football or anything else you did this day.</p>` : ""}</div>`;
+  }
+  addAct() {
+    const f = this.actForm, km = f.km === "" ? 0 : Number(f.km), min = f.min === "" ? 0 : Number(f.min);
+    const bad = (t) => { f.err = t; this.render(); };
+    if (!Number.isFinite(km) || km < 0 || km > 300) return bad("Distance goes from 0 to 300 km.");
+    if (!Number.isFinite(min) || min < 0 || min > 1440) return bad("Time goes from 0 to 1440 minutes.");
+    if (!km && !min) return bad("Enter the time, the distance, or both.");
+    const day = f.day, prev = this.actsFor(day);
+    const a = { id: Date.now().toString(36), t: f.t, ...(km ? { km: Math.round(km * 100) / 100 } : {}), ...(min ? { min: Math.round(min) } : {}), at: new Date().toISOString() };
+    this.setActs(day, prev.concat(a));
+    this.actForm = null; this.render();
+    this.toast(`${this.actText(a)} added`, () => { this.setActs(day, prev); this.render(); });
+  }
+  deleteAct(day, id) {
+    const prev = this.actsFor(day), a = prev.find((x) => x.id === id);
+    this.setActs(day, prev.filter((x) => x.id !== id)); this.render();
+    this.toast(`Deleted ${this.actText(a).toLowerCase()}`, () => { this.setActs(day, prev); this.render(); });
   }
 
   /* ---------------- Today ---------------- */
   v_today() {
     const F = this.F, d = this.dayIndex(this.week, this.day);
     const isToday = d === this.todayIndex();
-    const sess = TRAIN_DAYS[this.day];
-    const nextIdx = [1, 2, 3, 4, 5, 6, 7].map((k) => (this.day + k) % 7).find((k) => TRAIN_DAYS[k] !== undefined);
+    const date = this.dateFor(this.week, this.day);
     const fixed = PM.fixedFor(F, d);
     const recipeRow = (s) => {
       const m = this.menu[d][s], r = this.R[m.r], mac = PM.macros(F, PM.mealIngredients(F, m, d, s));
@@ -309,25 +476,26 @@ class App {
         <span class="s num">${mac.p} g</span>${ic("right")}</button>`;
     };
     const fixedRow = (f) => `<div class="row meal"><span class="meal-when">${f.name}</span><span class="fixed">${esc(f.text)}</span></div>`;
-    const heading = isToday ? this.now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" }) : DAYS_LONG[this.day];
-    const eyebrow = this.started ? `Week ${this.week}${isToday ? " · today" : ""}` : `Starts Mon 16 Nov · week ${this.week} preview`;
+    const heading = dayName(date);
+    const eyebrow = this.started ? `Week ${this.week}${isToday ? " · today" : ""}` : `Week ${this.week}${isToday ? " · today" : ""} · the plan starts Mon 16 Nov`;
     const football = this.day === F.football.day;
     return `<div class="today-grid">
       <div class="section">
         <div><div class="eyebrow">${eyebrow}</div><div class="h3 h-day">${heading}</div></div>
-        ${sess ? `<button type="button" class="train-line" data-go="train" data-sess="${sess}">${ic("train")}<span class="grow"><span class="t">Session ${sess}</span><br><span class="s">${SESS_DESC[sess]}</span></span><span class="s">Open</span>${ic("right")}</button>`
-          : `<div class="train-line rest">${ic("train")}<span class="grow"><span class="t">Rest day</span><br><span class="s">Next: Session ${TRAIN_DAYS[nextIdx]} on ${DAYS_LONG[nextIdx]}</span></span></div>`}
+        ${this.trainBlock(date)}
+        ${this.actBlock(date)}
         ${football ? `<p class="s m0">Football day: lunch has a bigger portion of carbs.</p>` : ""}
         <div class="rows">
           ${fixedRow(fixed[0])}${fixedRow(fixed[1])}${recipeRow(0)}${fixedRow(fixed[2])}${recipeRow(1)}${fixedRow(fixed[3])}
         </div>
         ${this.macroLine(PM.dayMacros(F, this.menu, d))}
+        ${isToday ? this.eatenLine() : ""}
         <button type="button" class="btn self-start" data-act="editday" data-day-index="${d}">${ic("menu")} Change this day's meals</button>
       </div>
       <div class="section">
         <div class="eyebrow">Other days</div>
         <div class="seg" role="group" aria-label="Week">${[1, 2].map((w) => `<button type="button" data-week="${w}" aria-pressed="${this.week === w}">Week ${w}</button>`).join("")}</div>
-        <div class="days">${DAYS.map((n, i) => `<button type="button" data-day="${i}" aria-pressed="${this.day === i}" aria-label="${DAYS_LONG[i]}${TRAIN_DAYS[i] ? ", Session " + TRAIN_DAYS[i] : ""}">${n}<b>${TRAIN_DAYS[i] || ""}</b><span class="dot ${this.dayIndex(this.week, i) === this.todayIndex() ? "" : "off"}"></span></button>`).join("")}</div>
+        <div class="days">${DAYS.map((n, i) => { const x = this.dateFor(this.week, i), S = this.sessOn(x); return `<button type="button" data-day="${i}" aria-pressed="${this.day === i}" aria-label="${dayName(x)}${S ? ", Session " + S : ""}">${n}<b>${S || ""}</b><span class="dot ${this.dayIndex(this.week, i) === this.todayIndex() ? "" : "off"}"></span></button>`; }).join("")}</div>
         <p class="s m0">Letters are the training sessions. The dot marks today.</p>
       </div></div>`;
   }
@@ -374,7 +542,8 @@ class App {
   }
   actionPanel() {
     const { d, s } = this.sel, m = this.menu[d][s];
-    const head = `<div class="panel-h"><span class="t">${esc(this.R[m.r].name)}</span><span class="s">${esc(this.mealName(d, s))}</span></div>`;
+    const head = `<div class="panel-top"><div class="panel-h"><span class="t">${esc(this.R[m.r].name)}</span><span class="s">${esc(this.mealName(d, s))}</span></div>
+      <button type="button" class="icon-btn" data-act="mclose" aria-label="Close">${ic("close")}</button></div>`;
     const chipDays = (attr, pressed, skip) => [1, 2].map((wk) => `<div class="chiprow"><span class="eyebrow">Week ${wk}</span><div class="chips">${DAYS.map((n, i) => {
       const dd = this.dayIndex(wk, i);
       if (skip && skip(dd)) return "";
@@ -468,7 +637,6 @@ class App {
     const usedV = [...new Set(this.menu.flatMap((day) => day.filter((m) => m.r === c.rid).map((m) => m.v)))];
     const vOptions = usedV.length ? usedV : Object.keys(V);
     return `<div class="section">
-      <button type="button" class="btn quiet self-start" data-act="cback">${ic("left")} All recipes</button>
       <div class="s">${esc(r.time)} · 1 serving${c.ctx ? ` · for ${esc(this.mealName(d, s))}` : ""}</div>
       ${this.macroLine(PM.macros(F, ingMap), { targets: false })}
       <div class="two">
@@ -649,7 +817,7 @@ class App {
     };
     const bar = `<div class="sess-bar">
       <div class="seg" role="group" aria-label="Session">${["A", "B", "C"].map((k) => `<button type="button" data-pick="${k}" aria-pressed="${k === this.sess}">Session ${k}</button>`).join("")}</div>
-      <span class="s">${SESS_DESC[this.sess]}${TRAIN_DAYS[this.todayWd] === this.sess ? " · today's session" : ""}</span>
+      <span class="s">${SESS_DESC[this.sess]}${this.sessOn(isoDay(new Date())) === this.sess ? " · today's session" : ""}</span>
     </div>`;
     const rowsList = `<div class="list section"><div class="rows">${list.map((it, i) => `<button type="button" class="row" data-ex="${i}" ${i === T.i ? 'aria-current="step"' : ""}>
         <span class="grow"><span class="t">${esc(EX[it[0]].name)}</span><br><span class="s">${esc(sub(it))}</span></span>${dots(it)}</button>`).join("")}</div>
@@ -708,17 +876,481 @@ class App {
       <span class="unit">${unit}</span><button type="button" data-step="${key}:${i}:${field}:1" aria-label="More, ${label}">${ic("plus")}</button></span>`;
   }
 
+  /* ---------------- Food log ---------------- */
+  logTitle() {
+    if (this.form) return this.form.plan ? this.form.n : this.form.key ? "Change product" : "Add a product";
+    if (this.meal) return this.meal.entryId ? FL.SLOT_LABEL[this.meal.slot] : this.meal.name;
+    return this.logMode === "foods" ? "Foods and meals" : "Food log";
+  }
+  targets() { return { ...FL.DEFAULT_TARGETS, ...(this.foods.targets || {}) }; }
+  cat() {
+    const key = JSON.stringify([this.foods.products, this.foods.nick]);
+    if (this._catKey !== key) { this._catKey = key; this._cat = FL.catalog(this.F, this.foods); }
+    return this._cat;
+  }
+  setFoods(next) { this.foods = next; this.change("foods", next); }
+  entries(day) { return (this.sync["log:" + day]?.value?.entries || []).slice(); }
+  setEntries(day, list) { this.change("log:" + day, { ...(this.sync["log:" + day]?.value || {}), entries: list }); }
+  dayLabel(day) {
+    const today = isoDay(new Date()), y = isoDay(new Date(Date.now() - 86400000));
+    const d = new Date(day + "T12:00:00");
+    const long = d.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
+    return day === today ? `Today, ${long}` : day === y ? `Yesterday, ${long}` : long;
+  }
+  shiftLogDay(n) {
+    const d = new Date(this.logDay + "T12:00:00"); d.setDate(d.getDate() + n);
+    const day = isoDay(d), today = isoDay(new Date()), oldest = isoDay(new Date(Date.now() - 34 * 86400000));
+    if (day > today || day < oldest) return;
+    this.logDay = day; this.saveMeal = null; this.render();
+  }
+  /** The plan's six meals for a date, with their ingredients, to log in one go. */
+  planMeals(day) {
+    const F = this.F, date = new Date(day + "T00:00:00");
+    const idx = Math.floor((date - CYCLE_START) / 86400000);
+    const week = idx >= 0 ? (Math.floor(idx / 7) % 2) + 1 : 1;
+    const d = this.dayIndex(week, wd(date)), fixed = PM.fixedFor(F, d);
+    const meal = (s) => ({ ing: PM.mealIngredients(F, this.menu[d][s], d, s), name: this.R[this.menu[d][s].r].name });
+    return [
+      { slot: "breakfast", name: "Breakfast", ing: fixed[0].ing },
+      { slot: "midmorning", name: "Mid-morning", ing: fixed[1].ing },
+      { slot: "lunch", ...meal(0) },
+      { slot: "afternoon", name: fixed[2].ing.grapes ? "Grapes" : "Pear", ing: fixed[2].ing },
+      { slot: "dinner", ...meal(1) },
+      { slot: "late", name: "Late snack", ing: fixed[3].ing },
+    ];
+  }
+  /** One line on Today: what's eaten so far against the targets. */
+  eatenLine() {
+    const es = this.entries(isoDay(new Date()));
+    const tot = FL.dayTotals(es), t = this.targets();
+    const st = FL.status(tot, t);
+    return `<button type="button" class="eaten" data-go="log">${ic("log")}<span class="grow"><span class="t">${es.length ? `Eaten so far: <span class="num">${num(tot.k)}</span> of <span class="num">${num(t.k)}</span> kcal` : "Nothing logged today"}</span><br>
+      <span class="s">${es.length ? esc(st.slice(0, 2).map((x) => x.text).join(" · ")) : "Log what you eat to see where the day stands."}</span></span><span class="s">Log food</span>${ic("right")}</button>`;
+  }
+  /** The live check under the entry box: what each part matched, and what it didn't. */
+  previewHtml() {
+    const text = this.logText.trim();
+    if (!text) return `<p class="s m0">Amount, then food. Grams by default; ml, kg, l and units work too ("2 huevos", "1 platano"). Separate foods with commas.</p>`;
+    const { items, problems } = FL.parse(text, this.cat());
+    const unitTxt = (i) => (i.u === "ud" ? `${num(i.a)}` : `${num(i.a)} ${i.u}`);
+    const nick = (f) => f.nick[0] || f.n.toLowerCase();
+    const msg = (p) => {
+      if (p.error === "unknown") return `<span class="grow"><b>"${esc(p.name || p.text)}"</b> isn't one of your foods.</span>
+        <button type="button" class="btn" data-add-nick="${esc(p.name || "")}">${ic("plus")} Add ${esc(p.name || "product")}</button>`;
+      if (p.error === "amount") return `<span class="grow">How much <b>${esc(nick(p.food))}</b>? Add a number, like "${p.food.perunit ? "1" : "100"} ${esc(nick(p.food))}".</span>`;
+      if (p.error === "unit") return `<span class="grow"><b>${esc(p.food.n)}</b> is counted in units: write "1 ${esc(nick(p.food))}".</span>`;
+      if (p.error === "piece") return `<span class="grow">How much does one <b>${esc(nick(p.food))}</b> weigh? Write it in grams, or set a piece weight in Foods.</span>`;
+      return `<span class="grow"><b>${esc(String(p.qty))} g of ${esc(nick(p.food))}</b>? Write "${esc(String(p.qty))} g ${esc(nick(p.food))}" if that's right.</span>`;
+    };
+    const sum = FL.sum(items);
+    return `<div class="pv">
+      ${items.map((i) => `<div class="pv-row"><span class="amt num">${unitTxt(i)}</span><span class="grow">${esc(i.n)}</span><span class="s nowrap">${num(i.m[0])} g protein · ${num(i.m[3])} kcal</span></div>`).join("")}
+      ${problems.map((p) => `<div class="pv-row bad">${msg(p)}</div>`).join("")}
+      ${items.length > 1 ? `<div class="pv-row sum"><span class="grow">Together</span>${this.macroLine(sum, { compact: true, targets: false })}</div>` : ""}
+    </div>`;
+  }
+  logReady() { const r = FL.parse(this.logText, this.cat()); return r.items.length > 0 && !r.problems.length; }
+  focusLog() { const el = this.$body?.querySelector('[data-r="logtext"]'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }
+
+  v_log() {
+    if (this.form) return this.v_form();
+    if (this.meal) return this.v_meal();
+    if (this.logMode === "foods") return this.v_foods();
+    const t = this.targets(), es = this.entries(this.logDay), tot = FL.dayTotals(es), st = FL.status(tot, t);
+    const isToday = this.logDay === isoDay(new Date());
+    const meals = this.foods.meals || [];
+    const plan = this.planMeals(this.logDay);
+    const logged = new Set(es.map((e) => e.slot));
+    const recent = this.recent();
+    const bar = (m, label, unit) => {
+      const v = tot[m], goal = t[m], pct = goal ? Math.min(100, Math.round((v / goal) * 100)) : 0;
+      const over = v > goal && m !== "p";
+      return `<div class="gl"><div class="gl-h"><span class="t">${label}</span><span class="num"><b>${num(m === "k" ? Math.round(v) : Math.round(v))}</b> / ${num(goal)} ${unit}</span></div>
+        <div class="bar${over ? " over" : v >= goal ? " done" : ""}"><i data-w="${pct}"></i></div></div>`;
+    };
+    const sentences = `<ul class="verdict">${st.map((x) => `<li class="${x.tone}">${esc(x.text)}</li>`).join("")}</ul>`;
+    const entryRow = (e) => {
+      const m = FL.sum(e.items);
+      return `<div class="entry"><div class="grow"><div class="t">${esc(e.items.map((i) => `${i.u === "ud" ? num(i.a) : num(i.a) + " " + i.u} ${i.n}`).join(", "))}</div>
+        ${this.macroLine(m, { compact: true, targets: false })}</div>
+        <div class="entry-act"><button type="button" class="icon-btn" data-edit-entry="${e.id}" aria-label="Change this entry">${ic("edit")}</button>
+        <button type="button" class="icon-btn" data-del-entry="${e.id}" aria-label="Delete this entry">${ic("trash")}</button></div></div>`;
+    };
+    const bySlot = FL.SLOTS.map(([k, l]) => [k, l, es.filter((e) => e.slot === k)]).filter(([, , x]) => x.length);
+    const bd = FL.breakdown(es, this.logMacro), mu = this.logMacro === "k" ? "kcal" : "g";
+    const MN = { p: "Protein", c: "Carbs", f: "Fat", k: "Calories" };
+    const breakdown = es.length ? `<div class="section">
+        <div class="eyebrow">Where it came from</div>
+        <div class="seg" role="group" aria-label="Show">${Object.entries(MN).map(([k, l]) => `<button type="button" data-log-macro="${k}" aria-pressed="${this.logMacro === k}">${l}</button>`).join("")}</div>
+        ${bd.total > 0 ? `<div class="rows bd">${bd.slots.map((s) => `<div class="bd-slot">
+          <div class="bd-h"><span class="t">${esc(s.label)}</span><span class="num">${num(s.v)} ${mu}</span><span class="pct num">${s.pct}%</span></div>
+          <div class="bar"><i data-w="${s.pct}"></i></div>
+          ${s.foods.map((f) => `<div class="bd-f"><span class="grow">${esc(f.n)} <span class="s num">${f.u === "ud" ? num(f.a) : num(f.a) + " " + f.u}</span></span><span class="num s">${num(f.v)} ${mu}</span><span class="pct num">${f.pct}%</span></div>`).join("")}
+        </div>`).join("")}</div>
+        <p class="s m0">Percent of the day's ${MN[this.logMacro].toLowerCase()}: ${num(bd.total)} ${mu}.</p>` : `<p class="s m0">No ${MN[this.logMacro].toLowerCase()} logged on this day.</p>`}
+      </div>` : "";
+    return `<div class="log-grid">
+      <div class="log-main">
+        <div class="section">
+          <div class="daynav"><button type="button" class="icon-btn" data-log-shift="-1" aria-label="Previous day">${ic("left")}</button>
+            <span class="t grow">${esc(this.dayLabel(this.logDay))}</span>
+            <button type="button" class="icon-btn" data-log-shift="1" aria-label="Next day" ${isToday ? "disabled" : ""}>${ic("right")}</button></div>
+          <div class="verdict-top">${es.length ? sentences : `<p class="s m0">Nothing logged yet. Target: ${num(t.k)} kcal, ${num(t.p)} g protein.</p>`}</div>
+        </div>
+        <div class="section">
+          <label class="eyebrow" for="logText">What did you eat?</label>
+          <div class="logbox"><input id="logText" class="login" data-r="logtext" type="text" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="done" maxlength="300" placeholder="400 leche, 8 cacao, 42 avena" value="${esc(this.logText)}">
+            ${this.logText ? `<button type="button" class="icon-btn" data-act="logclear" aria-label="Clear the box">${ic("close")}</button>` : ""}</div>
+          <div data-r="preview" aria-live="polite">${this.previewHtml()}</div>
+          <div class="chips" role="group" aria-label="Meal">${FL.SLOTS.map(([k, l]) => `<button type="button" class="chip" data-log-slot="${k}" aria-pressed="${this.logSlot === k}">${l}</button>`).join("")}</div>
+          <div class="actions logacts">
+            <button type="button" class="btn big primary" data-act="logit" data-r="logit" ${this.logReady() ? "" : "disabled"}>${ic("check")} Log ${esc(FL.SLOT_LABEL[this.logSlot].toLowerCase())}</button>
+            <button type="button" class="btn quiet" data-act="savemeal" data-r="savemeal" ${this.logReady() ? "" : "disabled"}>${ic("save")} Save as a meal</button>
+          </div>
+          ${this.saveMeal ? `<div class="panel"><label class="eyebrow" for="mealName">Name this meal</label>
+            <input id="mealName" class="login" data-r="mealname" maxlength="60" placeholder="Desayuno avena" value="${esc(this.saveMeal.name)}">
+            <div class="actions"><button type="button" class="btn primary" data-act="savemealgo">${ic("save")} Save meal</button><button type="button" class="btn quiet" data-act="savemealno">Cancel</button></div></div>` : ""}
+          ${meals.length ? `<div class="chiprow"><span class="eyebrow">Your meals</span><div class="chips">${meals.map((m) => `<button type="button" class="chip" data-use-meal="${m.id}">${esc(m.name)}</button>`).join("")}</div></div>` : ""}
+          <div class="chiprow"><span class="eyebrow">From the plan${isToday ? ", today" : ""}</span><div class="chips">${plan.map((m, i) => `<button type="button" class="chip${logged.has(m.slot) ? " done" : ""}" data-plan-meal="${i}">${logged.has(m.slot) ? ic("check") : ""}${esc(m.name)}</button>`).join("")}</div></div>
+          ${recent.length ? `<div class="chiprow"><span class="eyebrow">Recent</span><div class="chips">${recent.map((r, i) => `<button type="button" class="chip clip" data-recent="${i}">${ic("history")}<span>${esc(r.label)}</span></button>`).join("")}</div></div>` : ""}
+        </div>
+        <div class="section">
+          <div class="aisle-h"><span class="eyebrow">Logged</span><button type="button" class="btn quiet" data-act="foods">${ic("book")} Foods and meals</button></div>
+          ${bySlot.length ? bySlot.map(([k, l, x]) => `<div class="slotgroup"><div class="slot-h"><span class="eyebrow">${l}</span><span class="s num grow">${num(FL.sum(x.flatMap((e) => e.items)).k)} kcal</span><button type="button" class="btn quiet" data-add-slot="${k}">${ic("plus")} Add to ${l.toLowerCase()}</button></div><div class="rows">${x.map(entryRow).join("")}</div></div>`).join("")
+            : `<p class="muted m0">Nothing logged ${isToday ? "yet today" : "on this day"}.</p>`}
+        </div>
+      </div>
+      <div class="log-side">
+        <div class="section goals">
+          <div class="eyebrow">The day so far</div>
+          ${sentences}
+          ${bar("k", "Calories", "kcal")}${bar("p", "Protein", "g")}${bar("c", "Carbs", "g")}${bar("f", "Fat", "g")}
+          <button type="button" class="btn quiet self-start" data-go="settings">${ic("settings")} Change targets</button>
+        </div>
+        ${breakdown}
+      </div></div>`;
+  }
+  logIt() {
+    const { items, problems } = FL.parse(this.logText, this.cat());
+    if (!items.length || problems.length) return;
+    const list = this.entries(this.logDay);
+    list.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), slot: this.logSlot, text: this.logText.trim().slice(0, 300), items, at: new Date().toISOString() });
+    this.setEntries(this.logDay, list);
+    const label = FL.SLOT_LABEL[this.logSlot];
+    this.logText = ""; store.set("logdraft", ""); this.saveMeal = null;
+    this.render();
+    this.toastLogged(label, list);
+  }
+  toastLogged(label, list) {
+    const day = this.logDay, id = list[list.length - 1].id;
+    const st = FL.status(FL.dayTotals(list), this.targets());
+    this.toast(`${label} logged. ${st[0].text}.`, () => { this.setEntries(day, this.entries(day).filter((e) => e.id !== id)); this.render(); });
+  }
+  /** The last distinct things logged, newest first, to log again in two taps. */
+  recent() {
+    const days = Object.keys(this.sync).filter((k) => k.startsWith("log:")).sort().reverse().slice(0, 14);
+    const seen = new Set(), out = [];
+    for (const k of days) {
+      const es = (this.sync[k].value?.entries || []).slice().sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")));
+      for (const e of es) {
+        const sig = e.items.map((i) => `${i.k}:${i.a}`).sort().join("|");
+        if (seen.has(sig)) continue;
+        seen.add(sig);
+        out.push({ label: e.items.map((i) => i.n.split(" ")[0]).join(", "), entry: e });
+        if (out.length === 5) return out;
+      }
+    }
+    return out;
+  }
+  /** A meal opened from a chip: its foods with amounts to change, then logged in one tap. */
+  openMeal(src, ref) {
+    const cat = this.cat();
+    let m;
+    if (src === "saved") {
+      const sm = (this.foods.meals || []).find((x) => x.id === ref);
+      if (!sm) return;
+      const r = FL.parse(sm.text, cat);
+      m = { name: sm.name, slot: sm.slot || this.logSlot, id: sm.id, rows: r.items.map((i) => ({ k: i.k, a: i.a })), missing: r.problems.length };
+    } else if (src === "plan") {
+      const pm = this.planMeals(this.logDay)[ref];
+      m = { name: pm.name, slot: pm.slot, id: null, rows: Object.entries(pm.ing).map(([k, a]) => ({ k, a })), missing: 0 };
+    } else if (src === "entry") {
+      const e = this.entries(this.logDay).find((x) => x.id === ref);
+      if (!e) return;
+      // Foods deleted from the list since keep their logged values.
+      m = { name: "", slot: e.slot, id: null, entryId: e.id, rows: e.items.map((i) => (cat[i.k] ? { k: i.k, a: i.a } : { k: i.k, a: i.a, snap: i })), missing: 0 };
+    } else {
+      const r = this.recent()[ref];
+      if (!r) return;
+      const rows = r.entry.items.filter((i) => cat[i.k]).map((i) => ({ k: i.k, a: i.a }));
+      m = { name: r.label, slot: r.entry.slot, id: null, rows, missing: r.entry.items.length - rows.length };
+    }
+    m.orig = JSON.stringify(m.rows); m.more = ""; m.moreErr = "";
+    this.meal = m; this.saveMeal = null;
+    this.pushNav();
+    this.render({ top: true });
+    this.$title.focus({ preventScroll: true });
+  }
+  mealItems() { const cat = this.cat(); return this.meal.rows.filter((r) => r.a > 0 && (cat[r.k] || r.snap)).map((r) => (cat[r.k] ? FL.item(cat[r.k], r.a) : r.snap)); }
+  addMore() {
+    const m = this.meal, { items, problems } = FL.parse(m.more, this.cat());
+    if (!m.more.trim()) return;
+    if (problems.length) {
+      const p = problems[0];
+      m.moreErr = p.error === "unknown" ? `"${p.name || p.text}" isn't one of your foods. Add it in Foods and meals first.` : `Check "${p.text}": write the amount, then the food, like "20 cacahuetes".`;
+      return this.render();
+    }
+    for (const i of items) m.rows.push({ k: i.k, a: i.a });
+    m.more = ""; m.moreErr = "";
+    this.render();
+    this.$body.querySelector('[data-r="mealmore"]')?.focus();
+  }
+  saveEntry() {
+    const m = this.meal, items = this.mealItems(), day = this.logDay, prev = this.entries(day);
+    if (!items.length) return;
+    const list = prev.map((e) => (e.id === m.entryId ? { ...e, slot: m.slot, items, text: FL.textFor(Object.fromEntries(m.rows.filter((r) => !r.snap).map((r) => [r.k, r.a])), this.cat()).slice(0, 300) } : e));
+    this.setEntries(day, list);
+    this.closeTop();
+    this.toast(`${FL.SLOT_LABEL[m.slot]} saved. ${FL.status(FL.dayTotals(list), this.targets())[0].text}.`, () => { this.setEntries(day, prev); this.render(); });
+  }
+  v_meal() {
+    const m = this.meal, cat = this.cat(), items = this.mealItems();
+    const changed = m.id && JSON.stringify(m.rows) !== m.orig;
+    const rows = m.rows.map((r, i) => {
+      const f = cat[r.k];
+      if (!f && r.snap) return `<div class="mrow"><span class="grow"><span class="t">${esc(r.snap.n)}</span><br><span class="s">${num(r.snap.m[0])} g protein · ${num(r.snap.m[3])} kcal · no longer in your foods</span></span>
+        <span class="s nowrap">${num(r.a)} ${r.snap.u === "ud" ? "units" : r.snap.u}</span><button type="button" class="icon-btn" data-mdel="${i}" aria-label="Remove ${esc(r.snap.n)}">${ic("close")}</button></div>`;
+      if (!f) return "";
+      const it = r.a > 0 ? FL.item(f, r.a) : null;
+      return `<div class="mrow"><span class="grow"><span class="t">${esc(f.n)}</span><br><span class="s">${it ? `${num(it.m[0])} g protein · ${num(it.m[3])} kcal` : "Enter an amount"}</span></span>
+        <span class="tin amt-in"><input class="num" type="number" inputmode="decimal" min="0" max="10000" step="any" value="${r.a}" data-mamt="${i}" aria-label="${esc(f.n)}, amount in ${f.u === "ud" ? "units" : f.u}"><span class="unit">${f.u === "ud" ? "units" : f.u}</span></span>
+        <button type="button" class="icon-btn" data-mdel="${i}" aria-label="Remove ${esc(f.n)}">${ic("close")}</button></div>`;
+    }).join("");
+    return `<div class="section form">
+      <div class="chips" role="group" aria-label="Meal">${FL.SLOTS.map(([k, l]) => `<button type="button" class="chip" data-log-slot="${k}" aria-pressed="${m.slot === k}">${l}</button>`).join("")}</div>
+      ${m.rows.length ? `<div class="rows">${rows}</div>` : `<p class="muted m0">No foods in this meal yet. Add some below.</p>`}
+      <div class="ffield"><label class="eyebrow" for="mealMore">Add more to this meal</label>
+        <div class="logbox"><input id="mealMore" class="login" data-r="mealmore" type="text" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" enterkeyhint="done" maxlength="300" placeholder="20 cacahuetes, 1 platano" value="${esc(m.more)}">
+          <button type="button" class="btn" data-act="mmore">${ic("plus")} Add</button></div>
+        <p class="err-line" ${m.moreErr ? "" : "hidden"}>${esc(m.moreErr)}</p></div>
+      ${m.missing ? `<p class="s m0">${m.missing === 1 ? "One food in it is" : `${m.missing} foods in it are`} no longer in your foods and ${m.missing === 1 ? "was" : "were"} left out.</p>` : ""}
+      ${items.length ? `<div class="weekavg"><span class="eyebrow">This meal</span>${this.macroLine(FL.sum(items), { targets: false })}</div>` : ""}
+      <div class="actions logacts">
+        ${m.entryId ? `<button type="button" class="btn big primary" data-act="mentry" ${items.length ? "" : "disabled"}>${ic("check")} Save ${esc(FL.SLOT_LABEL[m.slot].toLowerCase())}</button>`
+          : `<button type="button" class="btn big primary" data-act="mlog" ${items.length ? "" : "disabled"}>${ic("check")} Log ${esc(FL.SLOT_LABEL[m.slot].toLowerCase())}</button>
+        <button type="button" class="btn quiet" data-act="mtext" ${items.length ? "" : "disabled"}>${ic("edit")} Edit as text</button>`}
+        ${changed ? `<button type="button" class="btn quiet" data-act="msave">${ic("save")} Save amounts to ${esc(m.name)}</button>` : ""}
+      </div>
+      ${m.id ? `<div class="danger-zone"><button type="button" class="btn danger" data-del-meal="${m.id}">${ic("trash")} Delete ${esc(m.name)}</button></div>` : ""}
+      ${m.entryId ? `<div class="danger-zone"><button type="button" class="btn danger" data-act="mentrydel">${ic("trash")} Delete from the log</button></div>` : ""}
+    </div>`;
+  }
+  logMeal() {
+    const items = this.mealItems();
+    if (!items.length) return;
+    const list = this.entries(this.logDay);
+    list.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), slot: this.meal.slot, text: FL.textFor(Object.fromEntries(this.meal.rows.map((r) => [r.k, r.a])), this.cat()).slice(0, 300), items, at: new Date().toISOString() });
+    this.setEntries(this.logDay, list);
+    const label = FL.SLOT_LABEL[this.meal.slot];
+    this.closeTop();
+    this.toastLogged(label, list);
+  }
+  mealToText() {
+    const sum = {}; for (const r of this.meal.rows) if (r.a > 0) sum[r.k] = (sum[r.k] || 0) + r.a;
+    this.logText = FL.textFor(sum, this.cat()); this.logSlot = this.meal.slot; store.set("logdraft", this.logText);
+    this.closeTop();
+    this.focusLog();
+  }
+  saveMealAmounts() {
+    const m = this.meal, sum = {};
+    for (const r of m.rows) if (r.a > 0) sum[r.k] = (sum[r.k] || 0) + r.a;
+    const meals = (this.foods.meals || []).map((x) => (x.id === m.id ? { ...x, slot: m.slot, text: FL.textFor(sum, this.cat()).slice(0, 300) } : x));
+    this.setFoods({ ...this.foods, meals });
+    m.orig = JSON.stringify(m.rows);
+    this.render();
+    this.toast(`Saved ${m.name}`);
+  }
+  deleteEntry(id) {
+    const day = this.logDay, prev = this.entries(day);
+    const e = prev.find((x) => x.id === id);
+    this.setEntries(day, prev.filter((x) => x.id !== id));
+    if (this.meal && this.meal.entryId === id) this.closeTop(); else this.render();
+    this.toast(`Deleted from ${FL.SLOT_LABEL[e.slot].toLowerCase()}`, () => { this.setEntries(day, prev); this.render(); });
+  }
+  saveMealGo() {
+    const name = (this.saveMeal?.name || "").trim();
+    if (!name) { this.toast("Give the meal a name first"); return this.$body.querySelector('[data-r="mealname"]')?.focus(); }
+    const meals = (this.foods.meals || []).filter((m) => m.name.toLowerCase() !== name.toLowerCase());
+    if (meals.length >= 100) return this.toast("You have 100 saved meals. Delete one in Foods and meals first.");
+    meals.push({ id: Date.now().toString(36), name: name.slice(0, 60), slot: this.logSlot, text: this.logText.trim().slice(0, 300) });
+    this.setFoods({ ...this.foods, meals });
+    this.saveMeal = null; this.render();
+    this.toast(`Saved "${name}". Tap it under Your meals next time.`);
+  }
+  deleteMeal(id) {
+    const prev = this.foods;
+    const m = (prev.meals || []).find((x) => x.id === id);
+    this.setFoods({ ...prev, meals: (prev.meals || []).filter((x) => x.id !== id) });
+    if (this.meal && this.meal.id === id) this.closeTop(); else this.render();
+    this.toast(`Deleted "${m.name}"`, () => { this.setFoods(prev); this.render(); });
+  }
+
+  /* ----- foods: own products, nicknames, saved meals ----- */
+  v_foods() {
+    const cat = this.cat(), own = Object.values(cat).filter((f) => f.own), planF = Object.values(cat).filter((f) => !f.own);
+    const per = (f) => (f.perunit ? "per unit" : `per 100 ${f.u}`);
+    const vals = (f) => `${num(f.nut[0])} P · ${num(f.nut[1])} C · ${num(f.nut[2])} F · ${num(f.nut[3])} kcal ${per(f)}`;
+    const row = (f) => `<button type="button" class="row" data-edit-food="${f.k}"><span class="grow"><span class="t">${esc(f.n)}</span><br>
+      <span class="s">Type: ${f.nick.map((n) => `<b class="nick">${esc(n)}</b>`).join(" ")}</span><br><span class="s num">${vals(f)}</span></span>${ic("edit")}</button>`;
+    const meals = this.foods.meals || [];
+    return `<div class="section">
+        <p class="muted m0">The log knows a food by the words you type for it. Change them to whatever you say at home.</p>
+        <button type="button" class="btn primary self-start" data-act="addprod">${ic("plus")} Add a product</button>
+      </div>
+      <div class="section"><div class="eyebrow">Your products</div>
+        ${own.length ? `<div class="rows">${own.map(row).join("")}</div>` : `<p class="s m0">None yet. Add one from a Mercadona link, or type its label.</p>`}</div>
+      <div class="section"><div class="eyebrow">Your meals</div>
+        ${meals.length ? `<div class="rows">${meals.map((m) => `<div class="row"><span class="grow"><span class="t">${esc(m.name)}</span><br><span class="s">${esc(m.text)}</span></span>
+          <button type="button" class="icon-btn" data-del-meal="${m.id}" aria-label="Delete ${esc(m.name)}">${ic("trash")}</button></div>`).join("")}</div>` : `<p class="s m0">None yet. Type a meal in the log and press Save as a meal.</p>`}</div>
+      <div class="section"><div class="eyebrow">Foods from the plan</div><div class="rows">${planF.map(row).join("")}</div></div>`;
+  }
+  openForm({ key = null, nick = "" }) {
+    const cat = this.cat(), f = key ? cat[key] : null;
+    this.confirmDel = null;
+    this.form = f
+      ? { key, plan: !f.own, link: "", n: f.n, nick: f.nick.join(", "), u: f.u, p: f.nut[0], c: f.nut[1], f: f.nut[2], k: f.nut[3], piece: f.piece || "", src: f.src, mid: f.mid, ean: f.ean, msg: null }
+      : { key: null, plan: false, link: "", n: "", nick: FL.norm(nick), u: "g", p: "", c: "", f: "", k: "", piece: "", msg: null };
+    this.pushNav();
+    this.render({ top: true });
+    this.$body.querySelector(f ? '[data-af="nick"]' : '[data-af="link"]')?.focus();
+  }
+  formCheck() {
+    const x = this.form, nut = [x.p, x.c, x.f, x.k].map(Number);
+    if ([x.p, x.c, x.f, x.k].some((v) => v === "" || v === null) || nut.some((v) => !Number.isFinite(v) || v < 0)) return "";
+    return FL.addsUp(nut) ? `<span class="ok">${ic("check")} The numbers add up.</span>`
+      : `<span class="warn">Calories don't match protein, carbs and fat (${num(Math.round(4 * nut[0] + 4 * nut[1] + 9 * nut[2]))} kcal from them). Check the label.</span>`;
+  }
+  v_form() {
+    const x = this.form, editing = !!x.key;
+    const field = (k, label, extra = "") => `<label class="ffield"><span class="eyebrow">${label}</span><input class="login${k === "n" || k === "nick" ? "" : " num"}" data-af="${k}" value="${esc(x[k] ?? "")}" ${extra}></label>`;
+    const numF = (k, label) => field(k, label, `type="number" inputmode="decimal" min="0" max="10000" step="0.1"`);
+    const per = x.u === "ud" ? "per unit" : `per 100 ${x.u}`;
+    const msg = x.msg ? `<div class="callout ${x.msg.tone}"><p class="m0">${x.msg.text}</p></div>` : "";
+    if (x.plan) {
+      return `<div class="section form">
+        <p class="s m0">From the plan: its values come from the plan (${num(x.p)} P · ${num(x.c)} C · ${num(x.f)} F · ${num(x.k)} kcal ${per}). You can change the words you type for it.</p>
+        ${field("nick", "Words you type for it, separated by commas", `autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="200"`)}
+        <div class="actions"><button type="button" class="btn primary" data-act="formsave">${ic("save")} Save</button><button type="button" class="btn quiet" data-act="formcancel">Cancel</button></div></div>`;
+    }
+    return `<div class="section form">
+      ${editing ? "" : `<div class="lookup"><label class="ffield grow"><span class="eyebrow">Mercadona link or product number</span>
+        <input class="login" data-af="link" inputmode="url" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="300" placeholder="https://tienda.mercadona.es/product/86341/…" value="${esc(x.link)}"></label>
+        <button type="button" class="btn${x.busy ? " busy" : ""}" data-act="lookup" ${this.online ? "" : "disabled"}>${ic("search")} ${x.busy ? "Finding product" : "Find product"}</button></div>
+        <p class="s m0">${this.online ? "Fills in the name and, when Open Food Facts has it, the values. Or fill everything in by hand from the label." : "Offline: fill it in by hand from the label."}</p>`}
+      ${msg}
+      ${field("n", "Name", `maxlength="80"`)}
+      ${field("nick", "Words you type for it, separated by commas", `autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="200" placeholder="avena, copos"`)}
+      <div class="chiprow"><span class="eyebrow">Measured in</span><div class="seg" role="group" aria-label="Measured in">${[["g", "Grams"], ["ml", "Millilitres"], ["ud", "Units"]].map(([u, l]) => `<button type="button" data-form-unit="${u}" aria-pressed="${x.u === u}">${l}</button>`).join("")}</div></div>
+      <div class="eyebrow">Values ${per}</div>
+      <div class="fgrid">${numF("p", "Protein g")}${numF("c", "Carbs g")}${numF("f", "Fat g")}${numF("k", "Calories kcal")}</div>
+      <div data-r="addsup" class="addsup">${this.formCheck()}</div>
+      ${x.u === "ud" ? "" : numF("piece", `One piece weighs (${x.u}, optional, so "2 ${esc(FL.nicks(x.nick)[0] || "pieces")}" works)`)}
+      <div class="actions"><button type="button" class="btn primary" data-act="formsave">${ic("save")} ${editing ? "Save changes" : "Add product"}</button><button type="button" class="btn quiet" data-act="formcancel">Cancel</button></div>
+      ${editing ? `<div class="danger-zone">${this.confirmDel ? `<div class="confirm"><span>Delete ${esc(x.n)}? Days you already logged keep it.</span><button type="button" class="btn danger" data-act="delfoodgo">Delete product</button><button type="button" class="btn quiet" data-act="delfoodno">Keep it</button></div>`
+        : `<button type="button" class="btn danger" data-act="delfood">${ic("trash")} Delete product</button>`}</div>` : ""}
+    </div>`;
+  }
+  async lookup() {
+    const x = this.form;
+    if (x.busy) return;
+    if (!/\/product\/\d|^\s*\d{1,8}(\.\d{1,2})?\s*$/.test(x.link)) { x.msg = { tone: "bad", text: "Paste a Mercadona product link (tienda.mercadona.es/product/…) or its number." }; return this.render(); }
+    x.busy = true; x.msg = null; this.render();
+    let r;
+    try { r = await api("GET", "/food/lookup?q=" + encodeURIComponent(x.link.trim())); } catch { r = { status: 0 }; }
+    x.busy = false;
+    if (this.form !== x) return;
+    if (r.status === 401) return this.signedOut();
+    if (r.status !== 200) {
+      x.msg = { tone: "bad", text: { 0: "Can't reach the server. Fill it in by hand, or try again when you're online.", 400: "That doesn't look like a Mercadona product link.", 404: "Mercadona has no product with that number." }[r.status] || "Mercadona isn't answering right now. Fill it in by hand, or try again in a minute." };
+      return this.render();
+    }
+    const L = r.data;
+    x.n = L.name; x.u = L.unit; x.mid = L.id; x.ean = L.ean || undefined;
+    if (!FL.nicks(x.nick).length) x.nick = FL.norm(L.name).split(" ").filter((w) => w.length > 2)[0] || "";
+    if (L.nut) { x.p = L.nut.p; x.c = L.nut.c; x.f = L.nut.f; x.k = L.nut.k; x.src = "off"; }
+    x.msg = {
+      ok: { tone: "good", text: "Values from Open Food Facts (per 100 " + L.unit + "). They add up; still worth a glance at the label." },
+      doesnt_add_up: { tone: "bad", text: "Open Food Facts has values, but they don't add up. Check them against the label before saving." },
+      missing: { tone: "bad", text: "Open Food Facts doesn't have this product. Type the four values from the label (per 100 " + L.unit + ")." },
+    }[L.check];
+    this.render();
+    this.$body.querySelector(L.check === "missing" ? '[data-af="p"]' : '[data-af="nick"]')?.focus();
+  }
+  saveForm() {
+    const x = this.form, cat = this.cat();
+    const list = FL.nicks(x.nick);
+    const fail = (t) => { x.msg = { tone: "bad", text: t }; this.render(); };
+    if (!list.length) return fail("Add at least one word you'll type for it, like \"avena\".");
+    const clash = FL.nickClash(cat, x.key, list);
+    if (clash.length) return fail(`"${esc(clash[0].n)}" is already the word for ${esc(clash[0].food)}. Use another one.`);
+    if (x.plan) {
+      this.setFoods({ ...this.foods, nick: { ...(this.foods.nick || {}), [x.key]: list } });
+      this.closeTop();
+      return this.toast("Saved");
+    }
+    const name = String(x.n || "").trim();
+    if (!name) return fail("Give it a name.");
+    const nut = [x.p, x.c, x.f, x.k].map(Number);
+    if ([x.p, x.c, x.f, x.k].some((v) => v === "") || nut.some((v) => !Number.isFinite(v) || v < 0 || v > 10000)) return fail("Fill in protein, carbs, fat and calories (0 is fine).");
+    const piece = x.u !== "ud" && x.piece !== "" && Number(x.piece) > 0 ? Math.min(5000, Number(x.piece)) : null;
+    const key = x.key || (x.mid ? "x" + String(x.mid).replace(/\D/g, "").slice(0, 12) : "x" + Date.now().toString(36).slice(-8));
+    if (!x.key && (this.foods.products || {})[key]) return fail("That product is already in your list. Open it under Your products to change it.");
+    const prod = { n: name.slice(0, 80), nick: list, u: x.u, nut: nut.map((v, i) => (i === 3 ? Math.round(v) : Math.round(v * 10) / 10)),
+                   ...(piece ? { piece } : {}), src: x.src === "off" ? "off" : "label", ...(x.mid ? { mid: String(x.mid) } : {}), ...(x.ean ? { ean: x.ean } : {}) };
+    this.setFoods({ ...this.foods, products: { ...(this.foods.products || {}), [key]: prod } });
+    const added = !x.key;
+    this.closeTop();
+    this.toast(added ? `Added. Type "${list[0]}" in the log.` : "Saved");
+    if (added && this.logMode !== "foods") this.focusLog();
+  }
+  deleteFood(key) {
+    const prev = this.foods, products = { ...(prev.products || {}) }, n = products[key]?.n;
+    delete products[key];
+    this.setFoods({ ...prev, products });
+    this.closeTop();
+    this.toast(`Deleted ${n}`, () => { this.setFoods(prev); this.render(); });
+  }
+  /** Typing: the entry box and the product form update in place, without re-drawing the page. */
+  onInput(e) {
+    const t = e.target;
+    if (!(t instanceof HTMLInputElement)) return;
+    if (t.dataset.r === "logtext") {
+      this.logText = t.value; store.set("logdraft", t.value);
+      const pv = this.$body.querySelector('[data-r="preview"]'); if (pv) pv.innerHTML = this.previewHtml();
+      const ok = this.logReady();
+      this.$body.querySelectorAll('[data-r="logit"],[data-r="savemeal"]').forEach((b) => (b.disabled = !ok));
+    } else if (t.dataset.r === "mealname" && this.saveMeal) this.saveMeal.name = t.value;
+    else if (t.dataset.r === "mealmore" && this.meal) this.meal.more = t.value;
+    else if (t.dataset.actf && this.actForm) this.actForm[t.dataset.actf] = t.value;
+    else if (t.dataset.af && this.form) {
+      this.form[t.dataset.af] = t.value;
+      const a = this.$body.querySelector('[data-r="addsup"]'); if (a) a.innerHTML = this.formCheck();
+    }
+  }
+
   /* ---------------- Settings ---------------- */
   v_settings() {
     const s = this.settings, segb = (k, v, lbl) => `<button type="button" data-set="${k}" data-val="${v}" aria-pressed="${String(s[k]) === String(v)}">${lbl}</button>`;
     const gymTxt = { added: "Sessions A, B and C are in Gymaker as Home A, Home B and Home C.", waiting: "Open Gymaker once on this account, then come back: the sessions are added after that." }[this.routineState] || "Sessions A, B and C are added to Gymaker the first time you open Train.";
     return `<div class="section"><div class="eyebrow">Training</div><div class="rows">
       <div class="set-row"><span><span class="t">Sets per exercise</span><br><span class="s">Auto is 2 until Sun 15 Nov, then 3.</span></span><div class="seg">${segb("sets", "auto", "Auto")}${segb("sets", 2, "2")}${segb("sets", 3, "3")}</div></div>
-      <div class="set-row"><span class="t">Training days</span><span class="num">Tue A · Thu B · Sun C</span></div>
+      <div class="set-row"><span><span class="t">Training days</span><br><span class="s">Your usual week. To change one week only, use Move or Skip on Today.</span></span>
+        <div class="wkgrid">${["A", "B", "C"].map((S) => { const w = this.weekly(); return `<div class="wkrow"><span class="t">Session ${S}</span><div class="chips">${DAYS.map((n, i) => `<button type="button" class="chip" data-wk="${S}:${i}" aria-pressed="${w[i] === S}" aria-label="Session ${S} on ${DAYS_LONG[i]}s">${n}</button>`).join("")}</div></div>`; }).join("")}</div></div>
       <div class="set-row"><span><span class="t">Gymaker</span><br><span class="s">${gymTxt}</span></span></div>
     </div></div>
     <div class="section"><div class="eyebrow">Food</div><div class="rows">
-      <div class="set-row"><span class="t">Daily target</span><span class="num">${this.F.targets.p} g protein · ${num(this.F.targets.k)} kcal</span></div>
+      <div class="set-row"><span><span class="t">Daily targets</span><br><span class="s">Used by the food log. The plan's menu averages about 154 g protein, 250 g carbs, 60 g fat and 2,200 kcal.</span></span>
+        <div class="targets">${[["p", "Protein", "g"], ["c", "Carbs", "g"], ["f", "Fat", "g"], ["k", "Calories", "kcal"]].map(([k, l, u]) => `<label class="tfield"><span>${l}</span><span class="tin"><input class="num" type="number" inputmode="numeric" min="0" max="10000" step="1" value="${this.targets()[k]}" data-target="${k}"><span class="unit">${u}</span></span></label>`).join("")}</div></div>
       <div class="set-row"><span class="t">Store</span><span>${esc(this.F.store)}</span></div>
       <div class="set-row"><span class="t">Prices from</span><span class="num">${esc(this.F.prices)}</span></div>
       <div class="set-row"><span class="t">About a month</span><span class="num">${eur(this.shopping().totals.month)}</span></div>
@@ -737,8 +1369,14 @@ class App {
       if (d.sess && d.sess !== this.sess) this.switchSession(d.sess);
       return this.go(d.go, true);
     }
-    if (d.week) { this.week = +d.week; return this.render(); }
-    if (d.day) { this.day = +d.day; return this.render(); }
+    if (d.week) { this.week = +d.week; this.moveFrom = null; this.addSess = null; this.actForm = null; return this.render(); }
+    if (d.day) { this.day = +d.day; this.moveFrom = null; this.addSess = null; this.actForm = null; return this.render(); }
+    if (d.tmoveTo) return this.moveSession(this.moveFrom, d.tmoveTo);
+    if (d.tsess) return this.setSessionOn(d.date, d.tsess);
+    if (d.wk) { const [S, i] = d.wk.split(":"); return this.setWeekly(S, +i); }
+    if (d.actType) { this.actForm.t = d.actType; return this.render(); }
+    if (d.delAct) return this.deleteAct(d.date, d.delAct);
+    if (d.addSlot) { this.logSlot = d.addSlot; this.render({ top: true }); return this.focusLog(); }
     if (d.menuWeek) { this.menuWeek = +d.menuWeek; this.sel = null; this.mode = null; return this.render(); }
     if (d.openMeal) { const [dd, ss] = d.openMeal.split(":").map(Number); return this.openRecipe(this.menu[dd][ss].r, { d: dd, s: ss }); }
     if (d.recipe) return this.openRecipe(d.recipe, null);
@@ -784,10 +1422,34 @@ class App {
       this.change("settings", this.settings);
       return this.render();
     }
+    if (d.logSlot) { if (this.meal) this.meal.slot = d.logSlot; else this.logSlot = d.logSlot; return this.render(); }
+    if (d.logShift) return this.shiftLogDay(+d.logShift);
+    if (d.logMacro) { this.logMacro = d.logMacro; return this.render(); }
+    if (d.useMeal) return this.openMeal("saved", d.useMeal);
+    if (d.planMeal !== undefined) return this.openMeal("plan", +d.planMeal);
+    if (d.recent !== undefined) return this.openMeal("recent", +d.recent);
+    if (d.mdel !== undefined) { this.meal.rows.splice(+d.mdel, 1); return this.render(); }
+    if (d.delEntry) return this.deleteEntry(d.delEntry);
+    if (d.editEntry) return this.openMeal("entry", d.editEntry);
+    if (d.delMeal) return this.deleteMeal(d.delMeal);
+    if (d.addNick !== undefined) return this.openForm({ nick: d.addNick });
+    if (d.editFood) return this.openForm({ key: d.editFood });
+    if (d.formUnit) { this.form.u = d.formUnit; return this.render(); }
     if (d.act) return this.act(d.act, b);
   }
   onChange(e) {
     const t = e.target;
+    if (t instanceof HTMLInputElement && t.dataset.mamt !== undefined && this.meal) {
+      const v = Number(t.value), r = this.meal.rows[+t.dataset.mamt];
+      if (r) r.a = t.value === "" || !Number.isFinite(v) || v < 0 ? 0 : Math.min(10000, Math.round(v * 10) / 10);
+      return this.render();
+    }
+    if (t instanceof HTMLInputElement && t.dataset.target) {
+      const v = Math.round(Number(t.value));
+      if (t.value === "" || !Number.isFinite(v) || v < 0 || v > 10000) { t.value = this.targets()[t.dataset.target]; return; }
+      this.setFoods({ ...this.foods, targets: { ...this.targets(), [t.dataset.target]: v } });
+      return this.toast("Target saved");
+    }
     if (!(t instanceof HTMLInputElement) || !t.dataset.field) return;
     const [key, i, field] = t.dataset.field.split(":");
     const v = t.value === "" ? "" : Math.max(0, Math.min(field === "weight" ? 500 : 1000, Number(t.value)));
@@ -812,6 +1474,7 @@ class App {
     this.cook = { rid, ctx, v, swaps: {}, step: -1, timer: null };
     this.ingTicks.clear();
     this.go("cook");
+    this.pushNav();
   }
   setSwap(from, to) {
     const c = this.cook;
@@ -849,12 +1512,13 @@ class App {
       case "prev": if (T.i > 0) T.i--; this.saveTrain(); break;
       case "addset": this.editRows(list[T.i][0], (rows) => rows.push({ ...rows[rows.length - 1], logged: false, dirty: false })); break;
       case "warmdone": T.warm[this.sess] = !T.warm[this.sess]; if (T.warm[this.sess] && T.i < list.length - 1) T.i++; this.saveTrain(); break;
-      case "editday": { const dd = +b.dataset.dayIndex; this.menuWeek = dd < 7 ? 1 : 2; this.view = "menu"; this.back = "menu"; this.sel = { d: dd, s: 0 }; this.mode = null; this.render({ top: true }); this.$title.focus({ preventScroll: true }); return; }
+      case "editday": { const dd = +b.dataset.dayIndex; this.menuWeek = dd < 7 ? 1 : 2; this.view = "menu"; this.back = "menu"; this.menuFrom = "today"; this.sel = { d: dd, s: 0 }; this.mode = null; this.pushNav(); this.render({ top: true }); this.$title.focus({ preventScroll: true }); return; }
       case "mopen": { const { d, s } = this.sel; return this.openRecipe(this.menu[d][s].r, { d, s }); }
       case "mcopy": this.mode = "copy"; this.copyDays.clear(); this.copySlot = this.sel.s; break;
       case "mswap": this.mode = "swap"; break;
       case "mrecipe": this.mode = "recipe"; break;
       case "mcancel": this.mode = null; break;
+      case "mclose": { const back = `[data-pick-meal="${this.sel.d}:${this.sel.s}"]`; this.sel = null; this.mode = null; this.render(); this.$body.querySelector(back)?.focus(); return; }
       case "mreset": {
         const { d, s } = this.sel, next = clone(this.menu);
         next[d][s] = clone(PM.defaultMenu(this.F)[d][s]);
@@ -868,20 +1532,46 @@ class App {
       case "menureset": this.confirmMenuReset = true; break;
       case "menuresetno": this.confirmMenuReset = false; break;
       case "menuresetgo": this.confirmMenuReset = false; this.sel = null; return this.setMenu(PM.defaultMenu(this.F), "Menu reset to the plan");
-      case "cback": this.cook = null; break;
-      case "cstart": c.step = 0; this.wake(true); break;
+      case "cstart": c.step = 0; this.wake(true); this.pushNav(); break;
       case "cnext": {
         const n = this.cookSteps(this.R[c.rid]).length;
-        if (c.step < n - 1) { c.step++; c.timer = null; } else { c.step = -1; c.timer = null; this.wake(false); this.toast("Done. Enjoy it."); }
+        if (c.step < n - 1) { c.step++; c.timer = null; } else { c.step = -1; c.timer = null; this.wake(false); this.popNav(1); this.toast("Done. Enjoy it."); }
         break;
       }
-      case "cprev": c.step--; c.timer = null; if (c.step < 0) this.wake(false); break;
+      case "cprev": c.step--; c.timer = null; if (c.step < 0) { this.wake(false); this.popNav(1); } break;
       case "ctstart": c.timer = { end: Date.now() + +b.dataset.min * 60000 }; break;
       case "ctstop": c.timer = null; break;
       case "sendlist": return this.sendList();
       case "pickall": this.skip[this.shop] = []; store.set("skip", this.skip); break;
       case "picknone": this.skip[this.shop] = this.shopItems(this.shop).map((x) => x.id); store.set("skip", this.skip); break;
       case "signout": return this.signOut();
+      case "headback": return this.closeTop();
+      case "tmove": this.moveFrom = b.dataset.date; this.addSess = null; break;
+      case "tskip": return this.setSessionOn(b.dataset.date, "-");
+      case "taddsess": this.addSess = b.dataset.date; this.moveFrom = null; break;
+      case "tclose": this.moveFrom = null; this.addSess = null; break;
+      case "actadd": this.actForm = { day: b.dataset.date, t: "walk", km: "", min: "", err: "" }; this.render(); this.$body.querySelector('[data-actf="min"]')?.focus(); return;
+      case "actgo": return this.addAct();
+      case "actclose": this.actForm = null; break;
+      case "mmore": return this.addMore();
+      case "mentry": return this.saveEntry();
+      case "mentrydel": return this.deleteEntry(this.meal.entryId);
+      case "mlog": return this.logMeal();
+      case "mtext": return this.mealToText();
+      case "msave": return this.saveMealAmounts();
+      case "logit": return this.logIt();
+      case "logclear": this.logText = ""; store.set("logdraft", ""); this.render(); return this.focusLog();
+      case "savemeal": this.saveMeal = { name: "" }; this.render(); this.$body.querySelector('[data-r="mealname"]')?.focus(); return;
+      case "savemealgo": return this.saveMealGo();
+      case "savemealno": this.saveMeal = null; break;
+      case "foods": this.logMode = "foods"; this.form = null; this.pushNav(); this.render({ top: true }); this.$title.focus({ preventScroll: true }); return;
+      case "addprod": return this.openForm({});
+      case "lookup": return this.lookup();
+      case "formsave": return this.saveForm();
+      case "formcancel": return this.closeTop();
+      case "delfood": this.confirmDel = this.form.key; break;
+      case "delfoodno": this.confirmDel = null; break;
+      case "delfoodgo": return this.deleteFood(this.form.key);
     }
     this.render();
   }
@@ -915,7 +1605,7 @@ class App {
   async signOut() {
     await this.push();
     try { await api("POST", "/auth/logout"); } catch {}
-    ["user", "sync", "train", "gymq", "routines", "skip"].forEach((k) => store.del(k));
+    ["user", "sync", "train", "gymq", "routines", "skip", "logdraft"].forEach((k) => store.del(k));
     location.reload();
   }
   async wake(on) {
@@ -941,6 +1631,11 @@ class App {
   key(e) {
     if (!this.$body) return false;
     const t = e.target instanceof Element ? e.target : null;
+    if (t && e.key === "Enter" && t.dataset.r === "logtext") { this.logIt(); return true; }
+    if (t && e.key === "Enter" && t.dataset.r === "mealname") { this.saveMealGo(); return true; }
+    if (t && e.key === "Enter" && t.dataset.r === "mealmore") { this.addMore(); return true; }
+    if (t && e.key === "Enter" && t.dataset.actf) { this.addAct(); return true; }
+    if (t && e.key === "Enter" && t.dataset.af === "link") { this.lookup(); return true; }
     if (t && t.closest("input,textarea")) return false;
     if (e.ctrlKey || e.metaKey || e.altKey) return false;
     if (e.key === "Escape" && this.view === "menu" && (this.sel || this.drop)) {
@@ -949,6 +1644,7 @@ class App {
       if (back) this.$body.querySelector(back)?.focus();
       return true;
     }
+    if (e.key === "Escape" && this.nested()) { this.closeTop(); return true; }
     if (this.view !== "train") return false;
     if (e.key === "ArrowRight") this.act("next");
     else if (e.key === "ArrowLeft") this.act("prev");

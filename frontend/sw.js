@@ -1,7 +1,7 @@
 // Offline copy of the app: the shell, the plan and every photo, so the shopping list and
 // recipes work in a shop with no signal. The server stamps the build into the cache name.
 const CACHE_NAME = "homeblock-__BUILD__";
-const SHELL = ["/", "/styles.css", "/exercises.js", "/planmath.js", "/app.js", "/data/plan.json", "/manifest.webmanifest", "/icons/icon.svg"];
+const SHELL = ["/", "/styles.css", "/exercises.js", "/planmath.js", "/foodlog.js", "/app.js", "/data/plan.json", "/manifest.webmanifest", "/icons/icon.svg"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(

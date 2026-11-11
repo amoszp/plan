@@ -33,9 +33,88 @@ export function validMenu(v: unknown): boolean {
   );
 }
 
+const text = (x: unknown, max: number) => typeof x === "string" && x.trim().length > 0 && x.length <= max;
+const amount = (x: unknown, max: number) => typeof x === "number" && Number.isFinite(x) && x >= 0 && x <= max;
+const nut4 = (x: unknown) => Array.isArray(x) && x.length === 4 && x.every((n) => amount(n, 10000));
+const FOOD_KEY = /^(?:[a-z]{1,12}|x[a-z0-9]{1,12})$/;
+const NICK = /^[a-z0-9ñ ]{1,30}$/;
+export const SLOT_KEYS = ["breakfast", "midmorning", "lunch", "afternoon", "dinner", "late"] as const;
+const nicks = (x: unknown) => Array.isArray(x) && x.length <= 8 && x.every((n) => typeof n === "string" && NICK.test(n));
+
+/** The user's own products (values per 100 g / 100 ml, or per unit), nicknames, saved meals and targets. */
+export function validFoods(v: unknown): boolean {
+  if (!isObj(v) || !Object.keys(v).every((k) => ["products", "nick", "meals", "targets"].includes(k))) return false;
+  const { products, nick, meals, targets } = v;
+  if (products !== undefined) {
+    if (!isObj(products) || Object.keys(products).length > 300) return false;
+    for (const [k, x] of Object.entries(products)) {
+      if (!/^x[a-z0-9]{1,12}$/.test(k) || !isObj(x)) return false;
+      if (!Object.keys(x).every((f) => ["n", "nick", "u", "nut", "piece", "src", "mid", "ean"].includes(f))) return false;
+      if (!text(x.n, 80) || !nicks(x.nick) || !["g", "ml", "ud"].includes(x.u as string) || !nut4(x.nut)) return false;
+      if (x.piece !== undefined && x.piece !== null && !amount(x.piece, 5000)) return false;
+      if (x.src !== undefined && !["off", "label"].includes(x.src as string)) return false;
+      if (x.mid !== undefined && !(typeof x.mid === "string" && /^\d{1,8}(?:\.\d{1,2})?$/.test(x.mid))) return false;
+      if (x.ean !== undefined && !(typeof x.ean === "string" && /^\d{8,14}$/.test(x.ean))) return false;
+    }
+  }
+  if (nick !== undefined && !(isObj(nick) && Object.keys(nick).length <= 60 && Object.entries(nick).every(([k, x]) => WORD.test(k) && nicks(x))))
+    return false;
+  if (meals !== undefined) {
+    if (!Array.isArray(meals) || meals.length > 100) return false;
+    if (!meals.every((m) => isObj(m) && Object.keys(m).every((f) => ["id", "name", "slot", "text"].includes(f)) &&
+        typeof m.id === "string" && /^[a-z0-9]{1,16}$/.test(m.id) && text(m.name, 60) && text(m.text, 300) &&
+        (m.slot === undefined || SLOT_KEYS.includes(m.slot as never)))) return false;
+  }
+  if (targets !== undefined) {
+    if (!isObj(targets) || !Object.keys(targets).every((k) => ["p", "c", "f", "k"].includes(k))) return false;
+    if (!Object.values(targets).every((x) => amount(x, 10000))) return false;
+  }
+  return true;
+}
+
+const ACT_TYPES = ["walk", "run", "bike", "football", "padel", "other"];
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Training days: a default week (0 = Monday) and changes to single dates ("-" = rest). */
+export function validTrain(v: unknown): boolean {
+  if (!isObj(v) || !Object.keys(v).every((k) => k === "weekly" || k === "moves")) return false;
+  const sess = (x: unknown) => x === "A" || x === "B" || x === "C" || x === "-";
+  if (v.weekly !== undefined && !(isObj(v.weekly) && Object.entries(v.weekly).every(([k, x]) => /^[0-6]$/.test(k) && sess(x)))) return false;
+  if (v.moves !== undefined && !(isObj(v.moves) && Object.keys(v.moves).length <= 200 && Object.entries(v.moves).every(([k, x]) => DAY.test(k) && sess(x))))
+    return false;
+  return true;
+}
+
+/** One day: foods eaten and activities done. Each food keeps its own name and values, so later product edits don't rewrite the past. */
+export function validLog(v: unknown): boolean {
+  if (!isObj(v) || !Object.keys(v).every((k) => k === "entries" || k === "acts") || !Array.isArray(v.entries) || v.entries.length > 60) return false;
+  if (v.acts !== undefined && !(Array.isArray(v.acts) && v.acts.length <= 20 && v.acts.every((a) =>
+      isObj(a) && Object.keys(a).every((f) => ["id", "t", "km", "min", "at"].includes(f)) &&
+      typeof a.id === "string" && /^[a-z0-9]{1,16}$/.test(a.id) && ACT_TYPES.includes(a.t as string) &&
+      (a.km === undefined || amount(a.km, 300)) && (a.min === undefined || amount(a.min, 1440)) &&
+      (a.km !== undefined || a.min !== undefined) && (a.at === undefined || validTime(a.at))))) return false;
+  return v.entries.every(
+    (e) =>
+      isObj(e) && Object.keys(e).every((f) => ["id", "slot", "text", "items", "at"].includes(f)) &&
+      typeof e.id === "string" && /^[a-z0-9]{1,16}$/.test(e.id) && SLOT_KEYS.includes(e.slot as never) &&
+      (e.text === undefined || (typeof e.text === "string" && e.text.length <= 300)) &&
+      (e.at === undefined || validTime(e.at)) &&
+      Array.isArray(e.items) && e.items.length >= 1 && e.items.length <= 30 &&
+      e.items.every(
+        (i) =>
+          isObj(i) && Object.keys(i).every((f) => ["k", "n", "a", "u", "m"].includes(f)) &&
+          typeof i.k === "string" && FOOD_KEY.test(i.k) && text(i.n, 80) && amount(i.a, 10000) &&
+          ["g", "ml", "ud"].includes(i.u as string) && nut4(i.m)
+      )
+  );
+}
+
 export function validState(key: string, v: unknown): boolean {
   if (key === "settings") return validSettings(v);
   if (key === "menu") return validMenu(v);
+  if (key === "foods") return validFoods(v);
+  if (key === "train") return validTrain(v);
+  if (key.startsWith("log:")) return validLog(v);
   return false;
 }
 

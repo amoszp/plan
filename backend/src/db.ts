@@ -18,26 +18,36 @@ db.exec(`
   );
 `);
 
-export const STATE_KEYS = ["settings", "menu"] as const;
-export type StateKey = (typeof STATE_KEYS)[number];
+// Settings, the edited menu, the food list (own products, nicknames, saved meals, targets), the
+// training days (a default week plus changes to single dates), and one document per day
+// ("log:2026-11-11": food eaten and activities done), so a day stays small and syncs on its own.
+export const STATE_KEYS = ["settings", "menu", "foods", "train"] as const;
+const LOG_KEY = /^log:\d{4}-\d{2}-\d{2}$/;
+export const isStateKey = (key: string) => (STATE_KEYS as readonly string[]).includes(key) || LOG_KEY.test(key);
+/** Days of food log sent with the state: older days stay stored but aren't loaded. */
+const LOG_DAYS = 35;
 
 export interface StateEntry {
   value: unknown;
   updatedAt: string;
 }
 
-export function getState(userId: number): Record<string, StateEntry> {
+export function getState(userId: number, today = new Date()): Record<string, StateEntry> {
+  const from = new Date(today.getTime() - LOG_DAYS * 86400000).toISOString().slice(0, 10);
   const rows = db.prepare("SELECT key, value, updated_at FROM state WHERE user_id = ?").all(userId) as {
     key: string;
     value: string;
     updated_at: string;
   }[];
   const out: Record<string, StateEntry> = {};
-  for (const r of rows) if ((STATE_KEYS as readonly string[]).includes(r.key)) out[r.key] = { value: JSON.parse(r.value), updatedAt: r.updated_at };
+  for (const r of rows) {
+    if (!isStateKey(r.key) || (r.key.startsWith("log:") && r.key.slice(4) < from)) continue;
+    out[r.key] = { value: JSON.parse(r.value), updatedAt: r.updated_at };
+  }
   return out;
 }
 
-export function putState(userId: number, key: StateKey, value: unknown, updatedAt: string): StateEntry {
+export function putState(userId: number, key: string, value: unknown, updatedAt: string): StateEntry {
   // Last write wins, by the time the change was made on the device, so a phone that was
   // offline doesn't overwrite a newer change made on the PC.
   const current = db.prepare("SELECT value, updated_at FROM state WHERE user_id = ? AND key = ?").get(userId, key) as

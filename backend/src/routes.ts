@@ -12,7 +12,8 @@ import {
   signup,
 } from "./auth";
 import { BridgeError, gymEnsureRoutines, gymLast, gymLog, listSend } from "./bridges";
-import { STATE_KEYS, getState, putState, type StateKey } from "./db";
+import { getState, isStateKey, putState } from "./db";
+import { LookupError, lookupProduct, productId } from "./food";
 import { validDate, validItems, validName, validRoutines, validSets, validState, validTime } from "./validate";
 
 export const router = Router();
@@ -99,7 +100,7 @@ router.get("/auth/me", (req, res) => {
   res.json({ user: req.user });
 });
 
-// ---------- state: settings and the edited menu ----------
+// ---------- state: settings, the edited menu, foods and the food log ----------
 
 router.get("/state", (req, res) => {
   res.json(getState(req.user!.id));
@@ -108,11 +109,11 @@ router.get("/state", (req, res) => {
 router.put("/state/:key", (req, res) => {
   const key = req.params.key;
   const { value, updatedAt } = req.body ?? {};
-  if (!(STATE_KEYS as readonly string[]).includes(key) || !validState(key, value) || !validTime(updatedAt)) {
+  if (!isStateKey(key) || !validState(key, value) || !validTime(updatedAt)) {
     res.status(400).json({ error: "invalid state" });
     return;
   }
-  res.json(putState(req.user!.id, key as StateKey, value, new Date(updatedAt).toISOString()));
+  res.json(putState(req.user!.id, key, value, new Date(updatedAt).toISOString()));
 });
 
 // ---------- gym log (the gym app owns workouts, sets and routines) ----------
@@ -167,5 +168,26 @@ router.post(
       return;
     }
     res.json(await listSend(token(req), list.trim(), items));
+  })
+);
+
+// ---------- food log: a product from the store, with its values from Open Food Facts ----------
+
+router.get(
+  "/food/lookup",
+  wrap(async (req, res) => {
+    const q = typeof req.query.q === "string" && req.query.q.length <= 300 ? req.query.q : "";
+    const id = productId(q);
+    if (!id) {
+      res.status(400).json({ error: "not a product link" });
+      return;
+    }
+    try {
+      res.json(await lookupProduct(id));
+    } catch (err) {
+      if (!(err instanceof LookupError)) throw err;
+      if (err.code === "unavailable") console.error(`[lookup] ${err.message}`);
+      res.status(err.code === "not_found" ? 404 : 502).json({ error: err.code });
+    }
   })
 );

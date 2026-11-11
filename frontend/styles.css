@@ -517,3 +517,14 @@ html{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
 .slot-h{gap:var(--s2);align-items:center}
 .slot-h .btn.quiet{min-height:var(--h-btn);padding:0 var(--s2)}
 .today-grid .actions .btn.quiet{padding:0 var(--s2)}
+
+/* ---------- bottom bar: Kage's height, flush to the bottom edge (D-220) ---------- */
+.nav{height:78px;padding:0 var(--s2);align-items:center}
+.toast{bottom:86px}
+@container app (min-width: 760px){.nav{height:auto;align-items:stretch;padding:var(--s6) var(--s3) var(--s5)}.toast{bottom:var(--s5)}}
+
+/* ---------- Mercadona search ---------- */
+.sres .row{min-height:68px;padding:var(--s2) var(--s3)}
+.sres .thumb{background:var(--photo-bg)}
+.chosen{display:flex;align-items:center;gap:var(--s2);padding:var(--s2) var(--s3);border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface)}
+.pick-img{width:100%;max-width:240px;aspect-ratio:1;object-fit:contain;background:var(--photo-bg);border-radius:var(--r);align-self:center;outline:1px solid rgba(255,255,255,.08);outline-offset:-1px}

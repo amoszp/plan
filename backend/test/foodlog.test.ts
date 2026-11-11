@@ -33,6 +33,17 @@ test("units, accents, plurals, decimals and the word order are understood", () =
   assert.deepEqual(r.items.map((i: any) => i.a), [400, 8, 42, 2, 1, 250, 500, 62.5, 90]);
 });
 
+test("singular and plural both match, including z → ces", () => {
+  const nuts = FL.catalog(plan, { products: { x123: { n: "Nuez natural Hacendado", nick: ["nuez"], u: "g", nut: [15, 7, 65, 650] } } });
+  for (const t of ["30 nueces", "30 nuez", "30 g de nueces"]) {
+    const r = FL.parse(t, nuts);
+    assert.deepEqual(r.problems, [], t);
+    assert.equal(r.items[0].k, "x123", t);
+  }
+  assert.equal(FL.parse("2 huevos, 100 judias verdes", nuts).items.map((i: any) => i.k).join(","), "egg,beans");
+  assert.deepEqual(FL.nickClash(nuts, "xother", ["nueces"]), [{ n: "nueces", food: "Nuez natural Hacendado" }]);
+});
+
 test("anything not recognised is reported, never guessed", () => {
   const r = FL.parse("200 pizza, avena, 60 g atun, 3 pollo", cat);
   assert.equal(r.items.length, 0);

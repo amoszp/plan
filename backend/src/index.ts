@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { router } from "./routes";
+import { refresh } from "./catalog";
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 4480);
@@ -53,4 +54,7 @@ app.use(express.static(FRONTEND_DIR, { index: false }));
 
 app.listen(PORT, () => {
   console.log(`[homeblock] listening on port ${PORT}`);
+  // The store catalogue for product search: the saved copy at once, a fresh one in the background.
+  void refresh();
+  setInterval(() => void refresh(), 6 * 3600000);
 });

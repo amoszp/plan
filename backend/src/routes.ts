@@ -14,6 +14,7 @@ import {
 import { BridgeError, gymEnsureRoutines, gymLast, gymLog, listSend } from "./bridges";
 import { getState, isStateKey, putState } from "./db";
 import { LookupError, lookupProduct, productId } from "./food";
+import { catalogueReady, photoUrl, refresh, search } from "./catalog";
 import { validDate, validItems, validName, validRoutines, validSets, validState, validTime } from "./validate";
 
 export const router = Router();
@@ -189,5 +190,49 @@ router.get(
       if (err.code === "unavailable") console.error(`[lookup] ${err.message}`);
       res.status(err.code === "not_found" ? 404 : 502).json({ error: err.code });
     }
+  })
+);
+
+// ---------- food log: search the store's catalogue (the server's own daily copy) ----------
+
+router.get("/food/search", (req, res) => {
+  const q = typeof req.query.q === "string" ? req.query.q.slice(0, 80) : "";
+  void refresh();
+  if (!catalogueReady()) {
+    res.status(503).json({ error: "catalogue loading" });
+    return;
+  }
+  res.json({
+    items: search(q).map((p) => ({ id: p.id, name: p.name, pack: p.pack, price: p.price, size: p.size, fmt: p.fmt, img: p.thumb ? `/api/food/img/${p.id}` : null })),
+  });
+});
+
+/** A product photo, fetched by the server: the page only loads its own files. */
+router.get(
+  "/food/img/:id",
+  wrap(async (req, res) => {
+    const url = /^\d{1,8}(?:\.\d{1,2})?$/.test(req.params.id) ? photoUrl(req.params.id) : null;
+    if (!url) {
+      res.status(404).end();
+      return;
+    }
+    let r: globalThis.Response;
+    try {
+      r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    } catch {
+      res.status(502).end();
+      return;
+    }
+    const type = r.headers.get("content-type") ?? "";
+    if (!r.ok || !/^image\/(jpeg|png|webp)$/.test(type.split(";")[0])) {
+      res.status(502).end();
+      return;
+    }
+    const body = Buffer.from(await r.arrayBuffer());
+    if (body.length > 400000) {
+      res.status(502).end();
+      return;
+    }
+    res.set("Cache-Control", "private, max-age=604800").type(type).send(body);
   })
 );

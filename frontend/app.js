@@ -259,7 +259,8 @@ class App {
   nested() {
     const T = { today: "Today", log: "Food log", menu: "Menu", train: "Train", cook: "Cook", buy: "Buy" };
     if (this.view === "log") {
-      if (this.form) return { label: `Back to ${this.logMode === "foods" ? "Foods and meals" : "Food log"}`, run: () => { this.form = null; this.confirmDel = null; } };
+      if (this.form && this.form.pick) return { label: "Back to results", run: () => { this.form.pick = null; } };
+      if (this.form) return { label: `Back to ${this.meal ? (this.meal.entryId ? FL.SLOT_LABEL[this.meal.slot] : this.meal.name) : this.logMode === "foods" ? "Foods and meals" : "Food log"}`, run: () => { this.form = null; this.confirmDel = null; } };
       if (this.meal) return { label: "Back to Food log", run: () => { this.meal = null; } };
       if (this.logMode === "foods") return { label: "Back to Food log", run: () => { this.logMode = null; } };
     }
@@ -878,7 +879,7 @@ class App {
 
   /* ---------------- Food log ---------------- */
   logTitle() {
-    if (this.form) return this.form.plan ? this.form.n : this.form.key ? "Change product" : "Add a product";
+    if (this.form) return this.form.pick ? "Mercadona product" : this.form.plan ? this.form.n : this.form.key ? "Change product" : "Add a product";
     if (this.meal) return this.meal.entryId ? FL.SLOT_LABEL[this.meal.slot] : this.meal.name;
     return this.logMode === "foods" ? "Foods and meals" : "Food log";
   }
@@ -950,6 +951,12 @@ class App {
     </div>`;
   }
   logReady() { const r = FL.parse(this.logText, this.cat()); return r.items.length > 0 && !r.problems.length; }
+  /** The first word in the box that isn't one of your foods, if any. */
+  unknownWord() { const p = FL.parse(this.logText, this.cat()).problems.find((x) => x.error === "unknown"); return p ? p.name || p.text : null; }
+  logButton() {
+    const u = this.unknownWord();
+    return u ? `${ic("search")} Find ${esc(u)} at Mercadona` : `${ic("check")} Log ${esc(FL.SLOT_LABEL[this.logSlot].toLowerCase())}`;
+  }
   focusLog() { const el = this.$body?.querySelector('[data-r="logtext"]'); if (el) { el.focus(); el.setSelectionRange(el.value.length, el.value.length); } }
 
   v_log() {
@@ -1004,7 +1011,7 @@ class App {
           <div data-r="preview" aria-live="polite">${this.previewHtml()}</div>
           <div class="chips" role="group" aria-label="Meal">${FL.SLOTS.map(([k, l]) => `<button type="button" class="chip" data-log-slot="${k}" aria-pressed="${this.logSlot === k}">${l}</button>`).join("")}</div>
           <div class="actions logacts">
-            <button type="button" class="btn big primary" data-act="logit" data-r="logit" ${this.logReady() ? "" : "disabled"}>${ic("check")} Log ${esc(FL.SLOT_LABEL[this.logSlot].toLowerCase())}</button>
+            <button type="button" class="btn big primary" data-act="logit" data-r="logit" ${this.logReady() || this.unknownWord() ? "" : "disabled"}>${this.logButton()}</button>
             <button type="button" class="btn quiet" data-act="savemeal" data-r="savemeal" ${this.logReady() ? "" : "disabled"}>${ic("save")} Save as a meal</button>
           </div>
           ${this.saveMeal ? `<div class="panel"><label class="eyebrow" for="mealName">Name this meal</label>
@@ -1031,6 +1038,8 @@ class App {
       </div></div>`;
   }
   logIt() {
+    const u = this.unknownWord();
+    if (u) return this.openForm({ nick: u });
     const { items, problems } = FL.parse(this.logText, this.cat());
     if (!items.length || problems.length) return;
     const list = this.entries(this.logDay);
@@ -1097,7 +1106,9 @@ class App {
     if (!m.more.trim()) return;
     if (problems.length) {
       const p = problems[0];
-      m.moreErr = p.error === "unknown" ? `"${p.name || p.text}" isn't one of your foods. Add it in Foods and meals first.` : `Check "${p.text}": write the amount, then the food, like "20 cacahuetes".`;
+      // Not one of your foods: straight to adding it; once saved, this meal screen comes back and the line is added.
+      if (p.error === "unknown") { m.moreErr = ""; return this.openForm({ nick: p.name || "" }); }
+      m.moreErr = `Check "${p.text}": write the amount, then the food, like "20 cacahuetes".`;
       return this.render();
     }
     for (const i of items) m.rows.push({ k: i.k, a: i.a });
@@ -1219,10 +1230,63 @@ class App {
     this.confirmDel = null;
     this.form = f
       ? { key, plan: !f.own, link: "", n: f.n, nick: f.nick.join(", "), u: f.u, p: f.nut[0], c: f.nut[1], f: f.nut[2], k: f.nut[3], piece: f.piece || "", src: f.src, mid: f.mid, ean: f.ean, msg: null }
-      : { key: null, plan: false, link: "", n: "", nick: FL.norm(nick), u: "g", p: "", c: "", f: "", k: "", piece: "", msg: null };
+      : { key: null, plan: false, link: "", n: "", nick: FL.norm(nick), u: "g", p: "", c: "", f: "", k: "", piece: "", msg: null,
+          q: FL.norm(nick), sres: null, sstate: "idle", pick: null, chosen: false };
     this.pushNav();
     this.render({ top: true });
-    this.$body.querySelector(f ? '[data-af="nick"]' : '[data-af="link"]')?.focus();
+    this.$body.querySelector(f ? '[data-af="nick"]' : '[data-af="q"]')?.focus();
+    if (!f && this.form.q.length >= 2) this.runSearch();
+  }
+  /* ----- search the store (the server keeps a copy of its catalogue) ----- */
+  async runSearch() {
+    const x = this.form;
+    if (!x || x.key) return;
+    const q = x.q.trim();
+    if (q.length < 2) { x.sres = null; x.sstate = "idle"; return this.paintSearch(); }
+    const known = this.savedFood(q);
+    if (known) { x.sres = null; x.sstate = "known"; x.known = known; x.sq = q; return this.paintSearch(); }
+    if (!this.online) { x.sstate = "offline"; return this.paintSearch(); }
+    const ticket = (this._sTicket = (this._sTicket || 0) + 1);
+    x.sstate = "loading"; this.paintSearch();
+    let r;
+    try { r = await api("GET", "/food/search?q=" + encodeURIComponent(q)); } catch { r = { status: 0 }; }
+    if (this.form !== x || ticket !== this._sTicket) return;
+    if (r.status === 401) return this.signedOut();
+    if (r.status === 200) { x.sres = r.data.items; x.sstate = "done"; x.sq = q; }
+    else x.sstate = r.status === 503 ? "notready" : "error";
+    this.paintSearch();
+  }
+  /** The saved food a word already names (singular or plural), if any. */
+  savedFood(word) {
+    const r = FL.parse("100 " + word, this.cat());
+    return r.items.length === 1 && !r.problems.length ? this.cat()[r.items[0].k] : null;
+  }
+  /** Redraws only the results, so the search box keeps the keyboard. */
+  paintSearch() { const el = this.$body?.querySelector('[data-r="sres"]'); if (el) el.innerHTML = this.searchHtml(); }
+  sizeOf(it) { return it.size ? `${num(it.size)} ${it.fmt || ""}`.trim() : ""; }
+  searchHtml() {
+    const x = this.form;
+    if (x.sstate === "known") return `<p class="s m0">"${esc(x.sq)}" is already one of your foods: ${esc(x.known.n)}. Type it in the log as it is.</p>`;
+    if (x.sstate === "loading") return `<p class="s m0">Searching Mercadona</p>`;
+    if (x.sstate === "offline") return `<p class="s m0">Offline: fill it in by hand from the label.</p>`;
+    if (x.sstate === "notready") return `<p class="s m0">The Mercadona catalogue is still loading on the server. Try again in a minute.</p>`;
+    if (x.sstate === "error") return `<p class="err-line">Can't reach the server. Try again, or fill it in by hand.</p>`;
+    if (x.sstate !== "done" || !x.sres) return "";
+    if (!x.sres.length) return `<p class="s m0">No products for "${esc(x.sq)}" at Mercadona. Try another word, or fill it in by hand below.</p>`;
+    return `<div class="rows sres">${x.sres.map((it, i) => `<button type="button" class="row" data-pick-prod="${i}">
+      ${it.img ? `<img class="thumb" src="${it.img}" alt="" loading="lazy">` : `<span class="thumb"></span>`}
+      <span class="grow"><span class="t">${esc(it.name)}</span><br><span class="s">${esc([it.pack, this.sizeOf(it), it.price != null ? eur(it.price) : ""].filter(Boolean).join(" · "))}</span></span>${ic("right")}</button>`).join("")}</div>`;
+  }
+  v_pick() {
+    const it = this.form.pick;
+    return `<div class="section form pick">
+      ${it.img ? `<img class="pick-img" src="${it.img}" alt="">` : ""}
+      <h2 class="h3">${esc(it.name)}</h2>
+      <p class="s m0">${esc([it.pack, this.sizeOf(it), it.price != null ? eur(it.price) : ""].filter(Boolean).join(" · "))}</p>
+      <div class="actions logacts">
+        <button type="button" class="btn big primary" data-act="pickuse">${ic("check")} Use this product</button>
+        <button type="button" class="btn quiet" data-act="headback">${ic("left")} Back to results</button>
+      </div></div>`;
   }
   formCheck() {
     const x = this.form, nut = [x.p, x.c, x.f, x.k].map(Number);
@@ -1242,11 +1306,19 @@ class App {
         ${field("nick", "Words you type for it, separated by commas", `autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="200"`)}
         <div class="actions"><button type="button" class="btn primary" data-act="formsave">${ic("save")} Save</button><button type="button" class="btn quiet" data-act="formcancel">Cancel</button></div></div>`;
     }
+    if (x.pick) return this.v_pick();
+    const finder = editing ? "" : x.chosen
+      ? `<div class="chosen"><span class="grow s">From Mercadona${x.mid ? ` · product ${esc(String(x.mid))}` : ""}</span><button type="button" class="btn quiet" data-act="searchagain">${ic("search")} Search again</button></div>`
+      : `<div class="ffield"><label class="eyebrow" for="mSearch">Search Mercadona</label>
+        <div class="logbox"><input id="mSearch" class="login" data-af="q" type="search" enterkeyhint="search" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="80" placeholder="nueces, yogur, pan de molde" value="${esc(x.q)}">
+          <button type="button" class="btn" data-act="msearch" ${this.online ? "" : "disabled"}>${ic("search")} Search</button></div></div>
+        <div data-r="sres" aria-live="polite">${this.searchHtml()}</div>`;
     return `<div class="section form">
-      ${editing ? "" : `<div class="lookup"><label class="ffield grow"><span class="eyebrow">Mercadona link or product number</span>
+      ${finder}
+      ${editing || x.chosen ? "" : `<div class="lookup"><label class="ffield grow"><span class="eyebrow">Or paste a Mercadona link</span>
         <input class="login" data-af="link" inputmode="url" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="300" placeholder="https://tienda.mercadona.es/product/86341/…" value="${esc(x.link)}"></label>
         <button type="button" class="btn${x.busy ? " busy" : ""}" data-act="lookup" ${this.online ? "" : "disabled"}>${ic("search")} ${x.busy ? "Finding product" : "Find product"}</button></div>
-        <p class="s m0">${this.online ? "Fills in the name and, when Open Food Facts has it, the values. Or fill everything in by hand from the label." : "Offline: fill it in by hand from the label."}</p>`}
+        <p class="s m0">${this.online ? "A product fills in the name and, when Open Food Facts has it, the values. Or fill everything in by hand from the label." : "Offline: fill it in by hand from the label."}</p>`}
       ${msg}
       ${field("n", "Name", `maxlength="80"`)}
       ${field("nick", "Words you type for it, separated by commas", `autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="200" placeholder="avena, copos"`)}
@@ -1275,7 +1347,7 @@ class App {
       return this.render();
     }
     const L = r.data;
-    x.n = L.name; x.u = L.unit; x.mid = L.id; x.ean = L.ean || undefined;
+    x.n = L.name; x.u = L.unit; x.mid = L.id; x.ean = L.ean || undefined; x.chosen = true;
     if (!FL.nicks(x.nick).length) x.nick = FL.norm(L.name).split(" ").filter((w) => w.length > 2)[0] || "";
     if (L.nut) { x.p = L.nut.p; x.c = L.nut.c; x.f = L.nut.f; x.k = L.nut.k; x.src = "off"; }
     x.msg = {
@@ -1310,8 +1382,11 @@ class App {
     this.setFoods({ ...this.foods, products: { ...(this.foods.products || {}), [key]: prod } });
     const added = !x.key;
     this.closeTop();
+    // Opened from a meal's "Add more": finish what was being added.
+    if (added && this.meal && this.meal.more.trim()) { this.addMore(); return this.toast(`Added ${name} to your foods and to this meal`); }
+    if (added && !this.meal && this.logMode !== "foods" && this.logText.trim()) { this.focusLog(); return this.toast(`Added ${name}. Your line is ready to log.`); }
     this.toast(added ? `Added. Type "${list[0]}" in the log.` : "Saved");
-    if (added && this.logMode !== "foods") this.focusLog();
+    if (added && this.logMode !== "foods" && !this.meal) this.focusLog();
   }
   deleteFood(key) {
     const prev = this.foods, products = { ...(prev.products || {}) }, n = products[key]?.n;
@@ -1327,12 +1402,16 @@ class App {
     if (t.dataset.r === "logtext") {
       this.logText = t.value; store.set("logdraft", t.value);
       const pv = this.$body.querySelector('[data-r="preview"]'); if (pv) pv.innerHTML = this.previewHtml();
-      const ok = this.logReady();
-      this.$body.querySelectorAll('[data-r="logit"],[data-r="savemeal"]').forEach((b) => (b.disabled = !ok));
+      const ok = this.logReady(), lb = this.$body.querySelector('[data-r="logit"]'), sm = this.$body.querySelector('[data-r="savemeal"]');
+      if (lb) { lb.disabled = !ok && !this.unknownWord(); lb.innerHTML = this.logButton(); }
+      if (sm) sm.disabled = !ok;
     } else if (t.dataset.r === "mealname" && this.saveMeal) this.saveMeal.name = t.value;
     else if (t.dataset.r === "mealmore" && this.meal) this.meal.more = t.value;
     else if (t.dataset.actf && this.actForm) this.actForm[t.dataset.actf] = t.value;
-    else if (t.dataset.af && this.form) {
+    else if (t.dataset.af === "q" && this.form) {
+      this.form.q = t.value;
+      clearTimeout(this._sT); this._sT = setTimeout(() => this.runSearch(), 350);
+    } else if (t.dataset.af && this.form) {
       this.form[t.dataset.af] = t.value;
       const a = this.$body.querySelector('[data-r="addsup"]'); if (a) a.innerHTML = this.formCheck();
     }
@@ -1435,6 +1514,7 @@ class App {
     if (d.addNick !== undefined) return this.openForm({ nick: d.addNick });
     if (d.editFood) return this.openForm({ key: d.editFood });
     if (d.formUnit) { this.form.u = d.formUnit; return this.render(); }
+    if (d.pickProd !== undefined) { this.form.pick = this.form.sres[+d.pickProd]; this.pushNav(); this.render({ top: true }); return this.$title.focus({ preventScroll: true }); }
     if (d.act) return this.act(d.act, b);
   }
   onChange(e) {
@@ -1567,6 +1647,9 @@ class App {
       case "foods": this.logMode = "foods"; this.form = null; this.pushNav(); this.render({ top: true }); this.$title.focus({ preventScroll: true }); return;
       case "addprod": return this.openForm({});
       case "lookup": return this.lookup();
+      case "msearch": return this.runSearch();
+      case "pickuse": { const x = this.form; x.link = x.pick.id; x.pick = null; this.popNav(1); return this.lookup(); }
+      case "searchagain": this.form.chosen = false; this.render(); this.$body.querySelector('[data-af="q"]')?.focus(); return;
       case "formsave": return this.saveForm();
       case "formcancel": return this.closeTop();
       case "delfood": this.confirmDel = this.form.key; break;
@@ -1636,6 +1719,7 @@ class App {
     if (t && e.key === "Enter" && t.dataset.r === "mealmore") { this.addMore(); return true; }
     if (t && e.key === "Enter" && t.dataset.actf) { this.addAct(); return true; }
     if (t && e.key === "Enter" && t.dataset.af === "link") { this.lookup(); return true; }
+    if (t && e.key === "Enter" && t.dataset.af === "q") { clearTimeout(this._sT); this.runSearch(); t.blur(); return true; }
     if (t && t.closest("input,textarea")) return false;
     if (e.ctrlKey || e.metaKey || e.altKey) return false;
     if (e.key === "Escape" && this.view === "menu" && (this.sel || this.drop)) {

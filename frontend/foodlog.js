@@ -53,18 +53,30 @@
     return idx;
   }
 
-  /** The food a piece of text names: exact nickname, then the plural, then a nickname the text starts with. */
+  /** The forms a Spanish word can take between singular and plural: "nueces" ↔ "nuez", "panes" ↔ "pan", "huevos" ↔ "huevo". */
+  function forms(w) {
+    const out = new Set([w]);
+    if (w.endsWith("ces") && w.length > 4) out.add(w.slice(0, -3) + "z");
+    if (w.endsWith("es") && w.length > 3) out.add(w.slice(0, -2));
+    if (w.endsWith("s") && w.length > 2) out.add(w.slice(0, -1));
+    if (w.endsWith("z")) out.add(w.slice(0, -1) + "ces");
+    return out;
+  }
+  const sameWord = (a, b) => { const fa = forms(a); for (const x of forms(b)) if (fa.has(x)) return true; return false; };
+
+  /** The food a piece of text names: a nickname, singular or plural, as the whole text or at its start
+      ("leche semidesnatada" → leche). The longest nickname wins ("queso rallado" over "queso"). */
   function findFood(text, cat, idx) {
     const t = norm(text).replace(/^de /, "");
     if (!t) return null;
     if (idx[t]) return cat[idx[t]];
-    for (const cut of [t.replace(/es$/, ""), t.replace(/s$/, "")]) if (idx[cut]) return cat[idx[cut]];
-    // "leche semidesnatada" → leche; the longest nickname wins ("queso rallado" over "queso").
+    const tw = t.split(" ");
     let best = null;
     for (const [n, k] of Object.entries(idx)) {
-      const words = t.split(" ").map((w) => w.replace(/s$/, ""));
-      const hit = t.startsWith(n + " ") || words.join(" ").startsWith(n + " ") || words.join(" ") === n;
-      if (hit && (!best || n.length > best.n.length)) best = { n, k };
+      const nw = n.split(" ");
+      if (nw.length > tw.length || !nw.every((w, i) => sameWord(w, tw[i]))) continue;
+      const exact = nw.length === tw.length;
+      if (!best || exact > best.exact || (exact === best.exact && n.length > best.n.length)) best = { n, k, exact };
     }
     return best ? cat[best.k] : null;
   }
@@ -207,7 +219,9 @@
   /** Which nicknames are already another food's. */
   function nickClash(cat, key, list) {
     const out = [];
-    for (const n of list) for (const f of Object.values(cat)) if (f.k !== key && f.nick.includes(n)) out.push({ n, food: f.n });
+    // Singular and plural count as the same word: "nueces" clashes with another food's "nuez".
+    const same = (a, b) => { const x = a.split(" "), y = b.split(" "); return x.length === y.length && x.every((w, i) => sameWord(w, y[i])); };
+    for (const n of list) for (const f of Object.values(cat)) if (f.k !== key && f.nick.some((m) => same(m, n))) out.push({ n, food: f.n });
     return out;
   }
 

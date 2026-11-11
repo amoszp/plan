@@ -255,7 +255,7 @@ button.row:active{background:var(--rose-soft)}
 .h-day{font-size:1.6rem}
 
 /* ---------- polish pass (interface and accessibility checks) ---------- */
-html{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+html{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;touch-action:manipulation}
 .app-head h1:focus{outline:none}
 .app-head h1:focus-visible{outline:3px solid var(--focus);outline-offset:4px;border-radius:4px}
 /* 44 px targets everywhere (D-195) */

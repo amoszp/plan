@@ -768,7 +768,8 @@ class App {
   /** The set rows for an exercise: typed today on this device, else logged today in the gym app, else last time, else the plan's start. */
   rowsFor(key) {
     if (this.tr.rows[key]) return this.tr.rows[key];
-    const e = EX[key], it = SESS[this.sess].find((x) => x[0] === key), n = this.setsFor(it);
+    // One set to start (Moe, 2026-11-11); "Add a set" copies the previous set's figures.
+    const e = EX[key], n = 1;
     const g = this.gym.data[e.name] || { last: [], today: null };
     let rows;
     if (e.kind === "amrap") rows = [{ weight: "", reps: g.today?.[0]?.reps ?? 0, logged: !!g.today }];
@@ -1537,12 +1538,21 @@ class App {
     this.render();
   }
   bump(key, i, field, dir) {
+    let row;
     this.editRows(key, (rows) => {
       const cur = rows[i][field] === "" ? 0 : Number(rows[i][field]);
       rows[i][field] = Math.max(0, Math.round((cur + dir * 1) * 10) / 10);
       if (rows[i].logged) rows[i].dirty = true;
+      row = rows[i];
     });
-    this.render();
+    // Update only this set in place: a full render rebuilt the exercise photos on every tap, so they flickered and reloaded.
+    const inp = this.$body.querySelector(`[data-field="${CSS.escape(`${key}:${i}:${field}`)}"]`);
+    if (!inp) return this.render();
+    inp.value = row[field];
+    if (row.logged && row.dirty) {
+      const b = this.$body.querySelector(`[data-log="${CSS.escape(`${key}:${i}`)}"]`);
+      if (b) { b.className = "btn primary"; b.textContent = "Save set"; }
+    }
   }
   switchSession(k) {
     this.sess = k;
